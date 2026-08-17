@@ -99,20 +99,33 @@
       cursor: not-allowed;
     }
 
+    /* Horizontal Full-Width Scrollable Palette */
+    .palette-container {
+      width: 100%;
+      overflow-x: auto;
+      white-space: nowrap;
+      padding: 8px 0;
+      scrollbar-width: thin;
+    }
+
     .palette-swatches {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      margin-top: 6px;
+      display: inline-flex;
+      gap: 8px;
     }
 
     .swatch {
-      width: 28px;
-      height: 28px;
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
       border-radius: 50%;
       border: 2px solid #ffffff;
       box-shadow: 0 0 0 1px var(--border-color);
       cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+
+    .swatch:hover {
+      transform: scale(1.15);
     }
 
     #preview-area {
@@ -133,7 +146,7 @@
       display: none;
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.7);
+      background: rgba(0,0,0,0.75);
       z-index: 1000;
       align-items: center;
       justify-content: center;
@@ -144,9 +157,36 @@
       background: white;
       padding: 20px;
       border-radius: 12px;
-      max-width: 500px;
+      max-width: 520px;
       width: 100%;
       box-sizing: border-box;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    .modal-canvas-container {
+      text-align: center;
+      margin: 10px 0;
+    }
+
+    .modal-canvas-container canvas {
+      max-width: 100%;
+      max-height: 350px;
+      border: 1px solid var(--border-color);
+    }
+
+    .target-select-btn {
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: #f0f0f0;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .target-select-btn.active {
+      background: var(--accent-color);
+      color: white;
+      border-color: var(--accent-color);
     }
   </style>
 </head>
@@ -173,8 +213,10 @@
   </div>
 
   <div class="control">
-    <label>Sampled Image Palette (Click to Assign)</label>
-    <div class="palette-swatches" id="paletteArea"></div>
+    <label>Sampled Color Palette (Click to set Inner Spacing color)</label>
+    <div class="palette-container">
+      <div class="palette-swatches" id="paletteArea"></div>
+    </div>
   </div>
 
   <div class="row">
@@ -188,15 +230,15 @@
     </div>
   </div>
 
-  <div class="section-title">3. Photo Sizing Mode</div>
+  <div class="section-title">3. Photo Shape & Placement</div>
   <div class="control">
-    <label for="sizeMode">Select Sizing Option</label>
+    <label for="sizeMode">Select Shape & Placement Option</label>
     <select id="sizeMode">
       <option value="square">Crop to square</option>
       <option value="sameHeight">Same height</option>
       <option value="sameWidth">Same width</option>
-      <option value="placeSquares">Edit places in squares (Center on Swatch)</option>
-      <option value="placeOneSquare">Edit places in one square (Interactive)</option>
+      <option value="placeSquares">Edit places in squares (Interactive per photo)</option>
+      <option value="placeOneSquare">Edit places in one square (Interactive all-in-one)</option>
       <option value="padSquareMax">Pad to square by max edge</option>
     </select>
   </div>
@@ -245,11 +287,20 @@
 
 <div class="modal" id="editorModal">
   <div class="modal-content">
-    <h3>Adjust Photo Placement</h3>
-    <canvas id="modalCanvas" width="400" height="400"></canvas>
+    <h3 id="modalTitle">Adjust Photo Placement</h3>
+    
+    <div id="photoSelectorGroup" style="display:none; margin-bottom: 10px;">
+      <label>Select Photo to Edit:</label>
+      <div id="photoBtnList" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"></div>
+    </div>
+
+    <div class="modal-canvas-container">
+      <canvas id="modalCanvas" width="400" height="400"></canvas>
+    </div>
+
     <div class="control">
       <label for="modScale">Scale</label>
-      <input type="range" id="modScale" min="0.2" max="2" step="0.05" value="1">
+      <input type="range" id="modScale" min="0.1" max="3" step="0.05" value="1">
     </div>
     <div class="control">
       <label for="modRotate">Rotation (deg)</label>
@@ -258,14 +309,15 @@
     <div class="row">
       <div class="control">
         <label for="modX">Offset X</label>
-        <input type="range" id="modX" min="-200" max="200" value="0">
+        <input type="range" id="modX" min="-300" max="300" value="0">
       </div>
       <div class="control">
         <label for="modY">Offset Y</label>
-        <input type="range" id="modY" min="-200" max="200" value="0">
+        <input type="range" id="modY" min="-300" max="300" value="0">
       </div>
     </div>
-    <button class="btn" id="modalNextBtn">Save & Next Photo</button>
+
+    <button class="btn" id="modalDoneBtn">Done / Next</button>
   </div>
 </div>
 
@@ -291,19 +343,23 @@
 
   // Modal Elements
   const editorModal = document.getElementById('editorModal');
+  const modalTitle = document.getElementById('modalTitle');
+  const photoSelectorGroup = document.getElementById('photoSelectorGroup');
+  const photoBtnList = document.getElementById('photoBtnList');
   const modalCanvas = document.getElementById('modalCanvas');
   const mCtx = modalCanvas.getContext('2d');
   const modScale = document.getElementById('modScale');
   const modRotate = document.getElementById('modRotate');
   const modX = document.getElementById('modX');
   const modY = document.getElementById('modY');
-  const modalNextBtn = document.getElementById('modalNextBtn');
+  const modalDoneBtn = document.getElementById('modalDoneBtn');
 
   let rawImages = [];
-  let interactiveTransforms = [];
-  let currentModalIdx = 0;
+  let transforms = [];
+  let currentSingleIdx = 0;
+  let activeMasterIdx = 0;
 
-  // UI Visibility Toggle
+  // UI Event Listeners
   maskMode.addEventListener('change', () => {
     radiusGroup.style.display = (maskMode.value === 'rounded') ? 'flex' : 'none';
   });
@@ -314,7 +370,7 @@
     gridColsGroup.style.display = (layoutType.value === 'grid') ? 'flex' : 'none';
   });
 
-  // Handle Photo Selection
+  // Load Images & Extract Screen-Width Palette
   imgInput.addEventListener('change', async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
@@ -322,7 +378,6 @@
     rawImages = [];
     paletteArea.innerHTML = '';
 
-    // Load images
     const loadedImgs = await Promise.all(files.map(file => {
       return new Promise(resolve => {
         const img = new Image();
@@ -331,17 +386,15 @@
       });
     }));
 
-    // Find largest image area
+    // Find max input size to downscale to appropriate bounds
     let maxArea = 0;
     loadedImgs.forEach(img => {
       const area = img.width * img.height;
       if (area > maxArea) maxArea = area;
     });
 
-    // Target cumulative area ~ max input image size
     const targetAreaPerImg = maxArea / loadedImgs.length;
 
-    // Rescale input images to prevent memory issues
     rawImages = loadedImgs.map(img => {
       const currentArea = img.width * img.height;
       const scale = Math.min(1, Math.sqrt(targetAreaPerImg / currentArea));
@@ -354,24 +407,33 @@
       return offCanvas;
     });
 
-    extractPalette(rawImages);
+    extractHorizontalPalette(rawImages);
     generateBtn.disabled = false;
   });
 
-  // Color Palette Sampler
-  function extractPalette(canvases) {
-    const colors = [];
+  // Sample across full grid to generate rich horizontally scrollable palette
+  function extractHorizontalPalette(canvases) {
+    const colorSet = new Set();
+
     canvases.forEach(c => {
       const cCtx = c.getContext('2d');
-      const data = cCtx.getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data;
-      const hex = "#" + ((1 << 24) + (data[0] << 16) + (data[1] << 8) + data[2]).toString(16).slice(1);
-      if (!colors.includes(hex)) colors.push(hex);
+      const stepX = Math.floor(c.width / 4);
+      const stepY = Math.floor(c.height / 4);
+
+      for (let x = stepX / 2; x < c.width; x += stepX) {
+        for (let y = stepY / 2; y < c.height; y += stepY) {
+          const pixel = cCtx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+          const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1);
+          colorSet.add(hex);
+        }
+      }
     });
 
-    colors.forEach(hex => {
+    colorSet.forEach(hex => {
       const swatch = document.createElement('div');
       swatch.className = 'swatch';
       swatch.style.backgroundColor = hex;
+      swatch.title = hex;
       swatch.onclick = () => {
         innerColor.value = hex;
       };
@@ -379,20 +441,31 @@
     });
   }
 
-  // Generate Action
-  generateBtn.addEventListener('click', async () => {
-    if (sizeMode.value === 'placeOneSquare') {
-      interactiveTransforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
-      currentModalIdx = 0;
-      openInteractiveModal(0);
+  // Trigger Interactive Modal depending on mode
+  generateBtn.addEventListener('click', () => {
+    const mode = sizeMode.value;
+    transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
+
+    if (mode === 'placeSquares') {
+      currentSingleIdx = 0;
+      photoSelectorGroup.style.display = 'none';
+      openSingleSquareModal(0);
+    } else if (mode === 'placeOneSquare') {
+      activeMasterIdx = 0;
+      photoSelectorGroup.style.display = 'block';
+      buildMasterPhotoSelector();
+      openMasterSquareModal();
     } else {
       buildCollage();
     }
   });
 
-  // Interactive Placement Logic
-  function openInteractiveModal(idx) {
+  // Mode: "Edit places in squares" (One photo per square swatch)
+  function openSingleSquareModal(idx) {
     editorModal.style.display = 'flex';
+    modalTitle.textContent = `Edit Placement: Photo ${idx + 1} of ${rawImages.length}`;
+    modalDoneBtn.textContent = (idx < rawImages.length - 1) ? "Save & Next Photo" : "Finish & Build Collage";
+
     const img = rawImages[idx];
     const s = parseInt(innerSpacing.value, 10);
     const maxDim = Math.max(img.width, img.height);
@@ -400,20 +473,18 @@
     modalCanvas.width = maxDim + s;
     modalCanvas.height = maxDim + s;
 
-    modScale.value = 1;
-    modRotate.value = 0;
-    modX.value = 0;
-    modY.value = 0;
+    // Load existing transforms
+    const t = transforms[idx];
+    modScale.value = t.scale;
+    modRotate.value = t.rot;
+    modX.value = t.x;
+    modY.value = t.y;
 
-    renderModalCanvas();
+    renderSingleSquareCanvas();
   }
 
-  function renderModalCanvas() {
-    const idx = currentModalIdx;
-    const img = rawImages[idx];
-    const s = parseInt(innerSpacing.value, 10);
-    const maxDim = Math.max(img.width, img.height);
-
+  function renderSingleSquareCanvas() {
+    const img = rawImages[currentSingleIdx];
     mCtx.fillStyle = innerColor.value;
     mCtx.fillRect(0, 0, modalCanvas.width, modalCanvas.height);
 
@@ -425,126 +496,231 @@
     mCtx.restore();
   }
 
-  [modScale, modRotate, modX, modY].forEach(el => el.addEventListener('input', renderModalCanvas));
+  // Mode: "Edit places in one square" (All photos on one master swatch)
+  function buildMasterPhotoSelector() {
+    photoBtnList.innerHTML = '';
+    rawImages.forEach((_, idx) => {
+      const btn = document.createElement('button');
+      btn.className = `target-select-btn ${idx === activeMasterIdx ? 'active' : ''}`;
+      btn.textContent = `Photo ${idx + 1}`;
+      btn.onclick = () => {
+        saveCurrentTransform(activeMasterIdx);
+        activeMasterIdx = idx;
+        buildMasterPhotoSelector();
+        loadControlsForPhoto(idx);
+        renderMasterSquareCanvas();
+      };
+      photoBtnList.appendChild(btn);
+    });
+  }
 
-  modalNextBtn.addEventListener('click', () => {
-    interactiveTransforms[currentModalIdx] = {
+  function openMasterSquareModal() {
+    editorModal.style.display = 'flex';
+    modalTitle.textContent = "Edit Placement on Master Swatch";
+    modalDoneBtn.textContent = "Finish & Build Collage";
+
+    let maxEdge = 0;
+    rawImages.forEach(img => {
+      const edge = Math.max(img.width, img.height);
+      if (edge > maxEdge) maxEdge = edge;
+    });
+
+    const s = parseInt(innerSpacing.value, 10);
+    modalCanvas.width = maxEdge + s;
+    modalCanvas.height = maxEdge + s;
+
+    loadControlsForPhoto(activeMasterIdx);
+    renderMasterSquareCanvas();
+  }
+
+  function loadControlsForPhoto(idx) {
+    const t = transforms[idx];
+    modScale.value = t.scale;
+    modRotate.value = t.rot;
+    modX.value = t.x;
+    modY.value = t.y;
+  }
+
+  function renderMasterSquareCanvas() {
+    mCtx.fillStyle = innerColor.value;
+    mCtx.fillRect(0, 0, modalCanvas.width, modalCanvas.height);
+
+    // Draw all photos in sequence onto the single master swatch
+    rawImages.forEach((img, idx) => {
+      const t = (idx === activeMasterIdx) ? {
+        scale: parseFloat(modScale.value),
+        rot: parseInt(modRotate.value, 10),
+        x: parseInt(modX.value, 10),
+        y: parseInt(modY.value, 10)
+      } : transforms[idx];
+
+      mCtx.save();
+      mCtx.translate(modalCanvas.width / 2 + t.x, modalCanvas.height / 2 + t.y);
+      mCtx.rotate(t.rot * Math.PI / 180);
+      mCtx.scale(t.scale, t.scale);
+      mCtx.drawImage(img, -img.width / 2, -img.height / 2);
+      mCtx.restore();
+    });
+  }
+
+  function saveCurrentTransform(idx) {
+    transforms[idx] = {
       scale: parseFloat(modScale.value),
       rot: parseInt(modRotate.value, 10),
       x: parseInt(modX.value, 10),
       y: parseInt(modY.value, 10)
     };
+  }
 
-    currentModalIdx++;
-    if (currentModalIdx < rawImages.length) {
-      openInteractiveModal(currentModalIdx);
+  // Live Slider Handlers
+  [modScale, modRotate, modX, modY].forEach(el => {
+    el.addEventListener('input', () => {
+      if (sizeMode.value === 'placeSquares') {
+        renderSingleSquareCanvas();
+      } else {
+        saveCurrentTransform(activeMasterIdx);
+        renderMasterSquareCanvas();
+      }
+    });
+  });
+
+  // Modal Done Button Handler
+  modalDoneBtn.addEventListener('click', () => {
+    if (sizeMode.value === 'placeSquares') {
+      saveCurrentTransform(currentSingleIdx);
+      currentSingleIdx++;
+      if (currentSingleIdx < rawImages.length) {
+        openSingleSquareModal(currentSingleIdx);
+      } else {
+        editorModal.style.display = 'none';
+        buildCollage();
+      }
     } else {
+      saveCurrentTransform(activeMasterIdx);
       editorModal.style.display = 'none';
       buildCollage();
     }
   });
 
-  // Core Collage Assembly Engine
+  // Main Assembly Engine
   function buildCollage() {
     const s = parseInt(innerSpacing.value, 10);
     const b = parseInt(outerSpacing.value, 10);
     const mode = sizeMode.value;
     const mask = maskMode.value;
 
-    // Step 1: Process Sizing Mode
-    let processed = rawImages.map((img, idx) => {
-      if (mode === 'square') {
-        const dim = Math.min(img.width, img.height);
-        const c = document.createElement('canvas');
-        c.width = dim; c.height = dim;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(img, (img.width - dim) / 2, (img.height - dim) / 2, dim, dim, 0, 0, dim, dim);
-        return c;
-      } 
-      else if (mode === 'sameHeight') {
-        const targetH = 400;
-        const targetW = Math.round(targetH * (img.width / img.height));
-        const c = document.createElement('canvas');
-        c.width = targetW; c.height = targetH;
-        c.getContext('2d').drawImage(img, 0, 0, targetW, targetH);
-        return c;
-      } 
-      else if (mode === 'sameWidth') {
-        const targetW = 400;
-        const targetH = Math.round(targetW * (img.height / img.width));
-        const c = document.createElement('canvas');
-        c.width = targetW; c.height = targetH;
-        c.getContext('2d').drawImage(img, 0, 0, targetW, targetH);
-        return c;
-      }
-      else if (mode === 'placeSquares') {
-        const maxEdge = Math.max(img.width, img.height);
-        const c = document.createElement('canvas');
-        c.width = maxEdge + s; c.height = maxEdge + s;
-        const ctx = c.getContext('2d');
-        ctx.fillStyle = innerColor.value;
-        ctx.fillRect(0, 0, c.width, c.height);
-        ctx.drawImage(img, (c.width - img.width) / 2, (c.height - img.height) / 2);
-        return c;
-      }
-      else if (mode === 'placeOneSquare') {
-        const maxEdge = Math.max(img.width, img.height);
-        const c = document.createElement('canvas');
-        c.width = maxEdge + s; c.height = maxEdge + s;
-        const ctx = c.getContext('2d');
-        ctx.fillStyle = innerColor.value;
-        ctx.fillRect(0, 0, c.width, c.height);
+    let processed = [];
 
-        const t = interactiveTransforms[idx];
-        ctx.save();
-        ctx.translate(c.width / 2 + t.x, c.height / 2 + t.y);
-        ctx.rotate(t.rot * Math.PI / 180);
-        ctx.scale(t.scale, t.scale);
-        ctx.drawImage(img, -img.width / 2, -img.height / 2);
-        ctx.restore();
-        return c;
-      }
-      else if (mode === 'padSquareMax') {
-        const maxEdge = Math.max(img.width, img.height);
-        const c = document.createElement('canvas');
-        c.width = maxEdge; c.height = maxEdge;
-        const ctx = c.getContext('2d');
-        ctx.fillStyle = innerColor.value;
-        ctx.fillRect(0, 0, c.width, c.height);
-        ctx.drawImage(img, (maxEdge - img.width) / 2, (maxEdge - img.height) / 2);
-        return c;
-      }
-      return img;
-    });
+    if (mode === 'placeOneSquare') {
+      // Entire collection was composed into one single master square swatch
+      let maxEdge = 0;
+      rawImages.forEach(img => {
+        const edge = Math.max(img.width, img.height);
+        if (edge > maxEdge) maxEdge = edge;
+      });
 
-    // Step 2: Mask Operations
+      const masterCanvas = document.createElement('canvas');
+      masterCanvas.width = maxEdge + s;
+      masterCanvas.height = maxEdge + s;
+      const mCtxOut = masterCanvas.getContext('2d');
+
+      mCtxOut.fillStyle = innerColor.value;
+      mCtxOut.fillRect(0, 0, masterCanvas.width, masterCanvas.height);
+
+      rawImages.forEach((img, idx) => {
+        const t = transforms[idx];
+        mCtxOut.save();
+        mCtxOut.translate(masterCanvas.width / 2 + t.x, masterCanvas.height / 2 + t.y);
+        mCtxOut.rotate(t.rot * Math.PI / 180);
+        mCtxOut.scale(t.scale, t.scale);
+        mCtxOut.drawImage(img, -img.width / 2, -img.height / 2);
+        mCtxOut.restore();
+      });
+
+      processed = [masterCanvas];
+    } else {
+      processed = rawImages.map((img, idx) => {
+        if (mode === 'square') {
+          const dim = Math.min(img.width, img.height);
+          const c = document.createElement('canvas');
+          c.width = dim; c.height = dim;
+          c.getContext('2d').drawImage(img, (img.width - dim) / 2, (img.height - dim) / 2, dim, dim, 0, 0, dim, dim);
+          return c;
+        } 
+        else if (mode === 'sameHeight') {
+          const targetH = 400;
+          const targetW = Math.round(targetH * (img.width / img.height));
+          const c = document.createElement('canvas');
+          c.width = targetW; c.height = targetH;
+          c.getContext('2d').drawImage(img, 0, 0, targetW, targetH);
+          return c;
+        } 
+        else if (mode === 'sameWidth') {
+          const targetW = 400;
+          const targetH = Math.round(targetW * (img.height / img.width));
+          const c = document.createElement('canvas');
+          c.width = targetW; c.height = targetH;
+          c.getContext('2d').drawImage(img, 0, 0, targetW, targetH);
+          return c;
+        }
+        else if (mode === 'placeSquares') {
+          const maxEdge = Math.max(img.width, img.height);
+          const c = document.createElement('canvas');
+          c.width = maxEdge + s; c.height = maxEdge + s;
+          const cCtx = c.getContext('2d');
+          cCtx.fillStyle = innerColor.value;
+          cCtx.fillRect(0, 0, c.width, c.height);
+
+          const t = transforms[idx];
+          cCtx.save();
+          cCtx.translate(c.width / 2 + t.x, c.height / 2 + t.y);
+          cCtx.rotate(t.rot * Math.PI / 180);
+          cCtx.scale(t.scale, t.scale);
+          cCtx.drawImage(img, -img.width / 2, -img.height / 2);
+          cCtx.restore();
+          return c;
+        }
+        else if (mode === 'padSquareMax') {
+          const maxEdge = Math.max(img.width, img.height);
+          const c = document.createElement('canvas');
+          c.width = maxEdge; c.height = maxEdge;
+          const cCtx = c.getContext('2d');
+          cCtx.fillStyle = innerColor.value;
+          cCtx.fillRect(0, 0, c.width, c.height);
+          cCtx.drawImage(img, (maxEdge - img.width) / 2, (maxEdge - img.height) / 2);
+          return c;
+        }
+        return img;
+      });
+    }
+
+    // Step 2: Apply Mask
     processed = processed.map(img => {
       if (mask === 'none') return img;
 
       const c = document.createElement('canvas');
       c.width = img.width; c.height = img.height;
-      const ctx = c.getContext('2d');
+      const cCtx = c.getContext('2d');
 
-      // Draw background swatch
-      ctx.fillStyle = innerColor.value;
-      ctx.fillRect(0, 0, c.width, c.height);
+      cCtx.fillStyle = innerColor.value;
+      cCtx.fillRect(0, 0, c.width, c.height);
 
-      ctx.save();
-      ctx.beginPath();
+      cCtx.save();
+      cCtx.beginPath();
       if (mask === 'rounded') {
         const r = parseInt(cornerRadius.value, 10);
-        ctx.roundRect(0, 0, c.width, c.height, r);
+        cCtx.roundRect(0, 0, c.width, c.height, r);
       } else if (mask === 'ellipse') {
-        ctx.ellipse(c.width / 2, c.height / 2, c.width / 2, c.height / 2, 0, 0, 2 * Math.PI);
+        cCtx.ellipse(c.width / 2, c.height / 2, c.width / 2, c.height / 2, 0, 0, 2 * Math.PI);
       }
-      ctx.clip();
-      ctx.drawImage(img, 0, 0);
-      ctx.restore();
+      cCtx.clip();
+      cCtx.drawImage(img, 0, 0);
+      cCtx.restore();
 
       return c;
     });
 
-    // Step 3: Stitching / Collage Layout
+    // Step 3: Layout & Stitching
     const layout = layoutType.value;
     let collageCanvas = document.createElement('canvas');
     let cCtx = collageCanvas.getContext('2d');
@@ -587,7 +763,7 @@
         curY += img.height + s;
       });
     }
-    else { // Grid Layout
+    else { // Grid
       const cols = parseInt(gridCols.value, 10);
       const rows = Math.ceil(processed.length / cols);
 
@@ -621,7 +797,7 @@
     iCtx.fillRect(0, 0, innerSwatchCanvas.width, innerSwatchCanvas.height);
     iCtx.drawImage(collageCanvas, s, s);
 
-    // Step 5: Outer Border Matte Overlay
+    // Step 5: Outer Border Matte
     const finalW = innerSwatchCanvas.width + (b * 2);
     const finalH = innerSwatchCanvas.height + (b * 2);
 
