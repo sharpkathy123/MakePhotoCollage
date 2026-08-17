@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Collage Generator</title>
+  <style>
+    :root {
+      --bg-color: #f2f2f7;
+      --card-bg: #ffffff;
+      --accent-color: #007aff;
+      --text-color: #1c1c1e;
+      --border-color: #e5e5ea;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .card {
+      max-width: 600px;
+      width: 100%;
+      background: var(--card-bg);
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      box-sizing: border-box;
+    }
+
+    h1 {
+      font-size: 1.3rem;
+      margin-top: 0;
+      text-align: center;
+    }
+
+    .control {
+      margin-bottom: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    label {
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    input[type="file"], select, input[type="range"], input[type="color"] {
+      width: 100%;
+      padding: 10px;
+      box-sizing: border-box;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      font-size: 0.95rem;
+      background: #fafafa;
+    }
+
+    .btn {
+      background-color: var(--accent-color);
+      color: white;
+      border: none;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      width: 100%;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+
+    .btn:disabled {
+      background-color: #c7c7cc;
+    }
+
+    #preview-area {
+      margin-top: 20px;
+      text-align: center;
+    }
+
+    canvas {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      background-color: #e5e5ea;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h1>Collage Builder</h1>
+
+  <div class="control">
+    <label for="imgInput">Select Images</label>
+    <input type="file" id="imgInput" accept="image/*" multiple>
+  </div>
+
+  <div class="control">
+    <label for="columnsSelect">Grid Layout</label>
+    <select id="columnsSelect">
+      <option value="1">1 Column (Vertical Stack)</option>
+      <option value="2" selected>2 Columns</option>
+      <option value="3">3 Columns</option>
+      <option value="4">4 Columns</option>
+    </select>
+  </div>
+
+  <div class="control">
+    <label for="spacingInput">Spacing: <span id="spacingVal">12px</span></label>
+    <input type="range" id="spacingInput" min="0" max="60" value="12">
+  </div>
+
+  <div class="control">
+    <label for="bgColor">Background Color</label>
+    <input type="color" id="bgColor" value="#ffffff">
+  </div>
+
+  <div class="control">
+    <label for="targetWidth">Output Resolution Width</label>
+    <select id="targetWidth">
+      <option value="1200">1200 px (Standard)</option>
+      <option value="2048" selected>2048 px (HD Output)</option>
+      <option value="4096">4096 px (Maximum Print Quality)</option>
+    </select>
+  </div>
+
+  <button class="btn" id="saveBtn" disabled>Save / Export Collage</button>
+
+  <div id="preview-area">
+    <canvas id="collageCanvas"></canvas>
+  </div>
+</div>
+
+<script>
+  const imgInput = document.getElementById('imgInput');
+  const columnsSelect = document.getElementById('columnsSelect');
+  const spacingInput = document.getElementById('spacingInput');
+  const spacingVal = document.getElementById('spacingVal');
+  const bgColor = document.getElementById('bgColor');
+  const targetWidth = document.getElementById('targetWidth');
+  const canvas = document.getElementById('collageCanvas');
+  const ctx = canvas.getContext('2d');
+  const saveBtn = document.getElementById('saveBtn');
+
+  let images = [];
+
+  spacingInput.addEventListener('input', () => {
+    spacingVal.textContent = `${spacingInput.value}px`;
+    render();
+  });
+
+  [columnsSelect, bgColor, targetWidth].forEach(el => el.addEventListener('change', render));
+
+  imgInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+
+    images = [];
+    let loaded = 0;
+
+    files.forEach(file => {
+      const img = new Image();
+      img.onload = () => {
+        images.push(img);
+        loaded++;
+        if (loaded === files.length) {
+          saveBtn.disabled = false;
+          render();
+        }
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  });
+
+  function render() {
+    if (!images.length) return;
+
+    const cols = parseInt(columnsSelect.value, 10);
+    const padding = parseInt(spacingInput.value, 10);
+    const totalWidth = parseInt(targetWidth.value, 10);
+    const rows = Math.ceil(images.length / cols);
+
+    const cellWidth = Math.floor((totalWidth - (padding * (cols + 1))) / cols);
+    const cellHeight = cellWidth; // Square grid tiles
+
+    const totalHeight = (cellHeight * rows) + (padding * (rows + 1));
+
+    canvas.width = totalWidth;
+    canvas.height = totalHeight;
+
+    // Fill background
+    ctx.fillStyle = bgColor.value;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw images centered inside cell boundaries
+    images.forEach((img, idx) => {
+      const c = idx % cols;
+      const r = Math.floor(idx / cols);
+
+      const x = padding + c * (cellWidth + padding);
+      const y = padding + r * (cellHeight + padding);
+
+      // Preserve aspect fill (crop to fill square tile)
+      let sX = 0, sY = 0, sW = img.width, sH = img.height;
+      const aspect = img.width / img.height;
+
+      if (aspect > 1) {
+        sW = img.height;
+        sX = (img.width - sW) / 2;
+      } else {
+        sH = img.width;
+        sY = (img.height - sH) / 2;
+      }
+
+      ctx.drawImage(img, sX, sY, sW, sH, x, y, cellWidth, cellHeight);
+    });
+  }
+
+  saveBtn.addEventListener('click', () => {
+    canvas.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `collage-${Date.now()}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }, 'image/png');
+  });
+</script>
+
+</body>
+</html>
