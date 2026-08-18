@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Photo Collage Builder</title>
+  <title>Grid Collage Generator</title>
   
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#007aff">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="Collage">
+  <meta name="apple-mobile-web-app-title" content="Grid Collage">
   <link rel="apple-touch-icon" href="https://img.icons8.com/color/512/grid-2.png">
 
   <style>
@@ -358,7 +358,7 @@
 <body>
 
 <div class="card">
-  <h1>Collage Generator</h1>
+  <h1>Grid Collage Generator</h1>
 
   <div class="control">
     <label for="imgInput">1. Select Photos</label>
@@ -464,7 +464,7 @@
   </div>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 15:07</span>
+    Updated: <span>2026-08-18 15:38</span>
   </div>
 </div>
 
@@ -519,7 +519,7 @@
   // PWA Service Worker Registration with Cache-Busting Parameter
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608181507').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608181538').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -1593,15 +1593,15 @@
   // Native Share Sheet / Direct Save Handler
   saveBtn.addEventListener('click', () => {
     canvas.toBlob(async (blob) => {
-      const fileName = `collage-${Date.now()}.png`;
+      const fileName = `grid-collage-${Date.now()}.png`;
       const file = new File([blob], fileName, { type: 'image/png' });
 
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({
             files: [file],
-            title: 'Collage',
-            text: 'Here is your generated collage.'
+            title: 'Grid Collage',
+            text: 'Here is your generated grid collage.'
           });
         } catch (err) {
           if (err.name !== 'AbortError') fallbackDownload(blob, fileName);
