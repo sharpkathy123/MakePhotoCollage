@@ -626,16 +626,17 @@
   });
 
   // Dynamic Smart Grid Column Calculator
+  // Evaluates from maximum columns down to 1 to favor wider/higher-column orientations
   function applySmartGridColumns() {
     const n = rawImages.length;
     if (!n) return;
 
-    let bestCols = n;
+    const maxCols = Math.min(5, n);
+    let bestCols = maxCols;
     let bestHoles = Infinity;
     let bestDifference = Infinity;
 
-    const maxCols = Math.min(5, n);
-    for (let cols = 1; cols <= maxCols; cols++) {
+    for (let cols = maxCols; cols >= 1; cols--) {
       const rows = Math.ceil(n / cols);
       const holes = rows * cols - n;
       const difference = Math.abs(rows - cols);
