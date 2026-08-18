@@ -147,7 +147,6 @@
       cursor: not-allowed;
     }
 
-    /* Color Selection UI */
     .color-target-toggle {
       display: flex;
       gap: 10px;
@@ -463,7 +462,7 @@
     
     <div id="photoSelectorGroup" style="display:none; margin-bottom: 10px;">
       <div class="multi-select-bar">
-        <span>Select Photos to Edit Together:</span>
+        <span>Select Photos to Edit Together (or tap image directly):</span>
         <span class="small-link" id="selectAllBtn" onclick="toggleSelectAllPhotos()">Select All</span>
       </div>
       <div id="photoBtnList" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"></div>
@@ -476,7 +475,7 @@
 
     <div class="modal-canvas-container">
       <canvas id="modalCanvas" width="400" height="400"></canvas>
-      <div class="touch-hint">🖐 Drag image to move &bull; Pinch to zoom</div>
+      <div class="touch-hint">🖐 Tap photo to select &bull; Drag to move &bull; Pinch to zoom</div>
     </div>
 
     <div class="control">
@@ -561,12 +560,13 @@
   let currentSingleIdx = 0;
   let selectedMasterIndices = new Set([0]);
 
-  // Touch Gesture Handling State
+  // Touch Gesture & Tap Selection State
   let isDragging = false;
   let dragStartX = 0, dragStartY = 0;
   let initialModX = 0, initialModY = 0;
   let initialPinchDist = null;
   let initialPinchScale = 1;
+  let touchStartPos = { x: 0, y: 0 };
 
   [innerSpacing, outerSpacing].forEach(input => {
     input.addEventListener('input', () => {
@@ -856,27 +856,28 @@
     });
   }
 
-  // Enhanced Mask Engine: Square, Circle, Ellipse, Rounded
-  function applyMaskToAsset(imgAsset, maskType, radius) {
+  // Enhanced Mask Engine: Guarantees uniform size for circles and squares
+  function applyMaskToAsset(imgAsset, maskType, radius, targetSquareDim = null) {
     if (maskType === 'none') return imgAsset;
 
     const c = document.createElement('canvas');
     const cCtx = c.getContext('2d');
 
-    // Square 1:1 Center Crop
+    // Uniform Square 1:1 Center Crop
     if (maskType === 'square') {
-      const minDim = Math.min(imgAsset.width, imgAsset.height);
+      const minDim = targetSquareDim || Math.min(imgAsset.width, imgAsset.height);
       c.width = minDim;
       c.height = minDim;
-      const srcX = (imgAsset.width - minDim) / 2;
-      const srcY = (imgAsset.height - minDim) / 2;
-      cCtx.drawImage(imgAsset, srcX, srcY, minDim, minDim, 0, 0, minDim, minDim);
+      const srcDim = Math.min(imgAsset.width, imgAsset.height);
+      const srcX = (imgAsset.width - srcDim) / 2;
+      const srcY = (imgAsset.height - srcDim) / 2;
+      cCtx.drawImage(imgAsset, srcX, srcY, srcDim, srcDim, 0, 0, minDim, minDim);
       return c;
     }
 
-    // Perfect Circle (Center cropped onto min dimension)
+    // Uniform Perfect Circle
     if (maskType === 'circle') {
-      const minDim = Math.min(imgAsset.width, imgAsset.height);
+      const minDim = targetSquareDim || Math.min(imgAsset.width, imgAsset.height);
       c.width = minDim;
       c.height = minDim;
 
@@ -885,9 +886,10 @@
       cCtx.arc(minDim / 2, minDim / 2, minDim / 2, 0, 2 * Math.PI);
       cCtx.clip();
 
-      const srcX = (imgAsset.width - minDim) / 2;
-      const srcY = (imgAsset.height - minDim) / 2;
-      cCtx.drawImage(imgAsset, srcX, srcY, minDim, minDim, 0, 0, minDim, minDim);
+      const srcDim = Math.min(imgAsset.width, imgAsset.height);
+      const srcX = (imgAsset.width - srcDim) / 2;
+      const srcY = (imgAsset.height - srcDim) / 2;
+      cCtx.drawImage(imgAsset, srcX, srcY, srcDim, srcDim, 0, 0, minDim, minDim);
       cCtx.restore();
 
       return c;
@@ -1092,6 +1094,7 @@
     const normImages = normalizeImagesToSameLongestEdge(rawImages);
     const mask = maskMode.value;
     const r = parseInt(cornerRadius.value, 10) || 0;
+    const maxEdge = getMaxEdgeAcrossAllRawImages();
 
     mCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
 
@@ -1102,7 +1105,7 @@
 
     layerOrder.forEach(idx => {
       const rawImg = normImages[idx];
-      const img = applyMaskToAsset(rawImg, mask, r);
+      const img = applyMaskToAsset(rawImg, mask, r, maxEdge);
       const t = transforms[idx];
       const centerX = modalCanvas.width / 2 + t.x;
       const centerY = modalCanvas.height / 2 + t.y;
@@ -1130,6 +1133,34 @@
       mCtx.fillText(idx + 1, centerX, centerY);
       mCtx.restore();
     });
+  }
+
+  // Hit-Testing for Direct Touch/Click Photo Selection
+  function hitTestPhoto(canvasX, canvasY) {
+    const maxEdge = getMaxEdgeAcrossAllRawImages();
+    const normImages = normalizeImagesToSameLongestEdge(rawImages);
+
+    // Iterate top-to-bottom through rendered layers
+    for (let i = layerOrder.length - 1; i >= 0; i--) {
+      const idx = layerOrder[i];
+      const rawImg = normImages[idx];
+      const t = transforms[idx];
+      const centerX = modalCanvas.width / 2 + t.x;
+      const centerY = modalCanvas.height / 2 + t.y;
+
+      const w = rawImg.width * t.scale;
+      const h = rawImg.height * t.scale;
+
+      if (
+        canvasX >= centerX - w / 2 &&
+        canvasX <= centerX + w / 2 &&
+        canvasY >= centerY - h / 2 &&
+        canvasY <= centerY + h / 2
+      ) {
+        return idx;
+      }
+    }
+    return -1;
   }
 
   function applyBatchTransforms() {
@@ -1187,12 +1218,13 @@
     el.addEventListener('input', triggerLiveUpdateFromSlidersOrGestures);
   });
 
-  // Touch Drag & Pinch Gestures
+  // Touch Drag, Pinch Gestures & Touch-Selection
   modalCanvas.addEventListener('touchstart', (e) => {
     if (e.touches.length === 1) {
       isDragging = true;
       dragStartX = e.touches[0].clientX;
       dragStartY = e.touches[0].clientY;
+      touchStartPos = { x: dragStartX, y: dragStartY };
       initialModX = parseInt(modX.value, 10);
       initialModY = parseInt(modY.value, 10);
     } else if (e.touches.length === 2) {
@@ -1228,12 +1260,32 @@
     }
   }, { passive: true });
 
-  modalCanvas.addEventListener('touchend', () => {
+  modalCanvas.addEventListener('touchend', (e) => {
+    if (sizeMode.value === 'placeOneSquare' && e.changedTouches.length === 1) {
+      const touch = e.changedTouches[0];
+      const dist = Math.hypot(touch.clientX - touchStartPos.x, touch.clientY - touchStartPos.y);
+
+      // Simple tap check (movement less than 6px)
+      if (dist < 6) {
+        const rect = modalCanvas.getBoundingClientRect();
+        const scaleFactor = modalCanvas.width / rect.width;
+        const canvasX = (touch.clientX - rect.left) * scaleFactor;
+        const canvasY = (touch.clientY - rect.top) * scaleFactor;
+
+        const hitIdx = hitTestPhoto(canvasX, canvasY);
+        if (hitIdx !== -1) {
+          selectedMasterIndices = new Set([hitIdx]);
+          buildMasterPhotoSelector();
+          loadControlsForSelectedPhotos();
+          renderMasterSquareCanvas();
+        }
+      }
+    }
     isDragging = false;
     initialPinchDist = null;
   });
 
-  // Mouse Drag Support
+  // Mouse Drag & Click-Selection Support
   let isMouseDown = false;
   let mouseStartX = 0, mouseStartY = 0;
 
@@ -1257,7 +1309,24 @@
     triggerLiveUpdateFromSlidersOrGestures();
   });
 
-  window.addEventListener('mouseup', () => {
+  window.addEventListener('mouseup', (e) => {
+    if (isMouseDown && sizeMode.value === 'placeOneSquare') {
+      const dist = Math.hypot(e.clientX - mouseStartX, e.clientY - mouseStartY);
+      if (dist < 6) {
+        const rect = modalCanvas.getBoundingClientRect();
+        const scaleFactor = modalCanvas.width / rect.width;
+        const canvasX = (e.clientX - rect.left) * scaleFactor;
+        const canvasY = (e.clientY - rect.top) * scaleFactor;
+
+        const hitIdx = hitTestPhoto(canvasX, canvasY);
+        if (hitIdx !== -1) {
+          selectedMasterIndices = new Set([hitIdx]);
+          buildMasterPhotoSelector();
+          loadControlsForSelectedPhotos();
+          renderMasterSquareCanvas();
+        }
+      }
+    }
     isMouseDown = false;
   });
 
@@ -1285,10 +1354,10 @@
     const r = parseInt(cornerRadius.value, 10) || 0;
 
     let processed = [];
+    const maxEdge = getMaxEdgeAcrossAllRawImages();
 
     if (mode === 'placeOneSquare') {
       const normImages = normalizeImagesToSameLongestEdge(rawImages);
-      const maxEdge = getMaxEdgeAcrossAllRawImages();
 
       const masterCanvas = document.createElement('canvas');
       masterCanvas.width = maxEdge + s;
@@ -1302,7 +1371,7 @@
 
       layerOrder.forEach(idx => {
         const rawImg = normImages[idx];
-        const maskedImg = applyMaskToAsset(rawImg, mask, r);
+        const maskedImg = applyMaskToAsset(rawImg, mask, r, maxEdge);
         const t = transforms[idx];
         mCtxOut.save();
         mCtxOut.translate(masterCanvas.width / 2 + t.x, masterCanvas.width / 2 + t.y);
@@ -1318,8 +1387,6 @@
       if (mode === 'placeSquaresFixedMask' || mode === 'padSquareMax' || mode === 'uniform') {
         activeImages = normalizeImagesToSameLongestEdge(rawImages);
       }
-
-      const maxEdge = getMaxEdgeAcrossAllRawImages();
 
       processed = activeImages.map((img, idx) => {
         let shapedImg = img;
@@ -1341,7 +1408,7 @@
           shapedImg = c;
         }
 
-        const maskedImg = applyMaskToAsset(shapedImg, mask, r);
+        const maskedImg = applyMaskToAsset(shapedImg, mask, r, maxEdge);
 
         if (mode === 'placeSquaresFixedMask') {
           const c = document.createElement('canvas');
