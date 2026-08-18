@@ -389,6 +389,7 @@
       <option value="sameHeight">Same height</option>
       <option value="sameWidth">Same width</option>
       <option value="placeSquares">Edit places in squares (Interactive per photo)</option>
+      <option value="placeSquaresFixedMask">Edit places in squares (Fixed mask)</option>
       <option value="placeOneSquare">Edit places in one square (Interactive all-in-one)</option>
       <option value="padSquareMax">Pad to square by max edge</option>
     </select>
@@ -770,7 +771,7 @@
   generateBtn.addEventListener('click', () => {
     const mode = sizeMode.value;
 
-    if (mode === 'placeSquares') {
+    if (mode === 'placeSquares' || mode === 'placeSquaresFixedMask') {
       transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
       initialMasterTransforms = JSON.parse(JSON.stringify(transforms));
       currentSingleIdx = 0;
@@ -876,7 +877,7 @@
     const rawImg = normImages[currentSingleIdx];
     const mask = maskMode.value;
     const r = parseInt(cornerRadius.value, 10) || 0;
-    const img = applyMaskToAsset(rawImg, mask, r);
+    const mode = sizeMode.value;
 
     mCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
 
@@ -886,10 +887,32 @@
     }
 
     mCtx.save();
-    mCtx.translate(modalCanvas.width / 2 + parseInt(modX.value, 10), modalCanvas.height / 2 + parseInt(modY.value, 10));
-    mCtx.rotate(parseInt(modRotate.value, 10) * Math.PI / 180);
-    mCtx.scale(parseFloat(modScale.value), parseFloat(modScale.value));
-    mCtx.drawImage(img, -img.width / 2, -img.height / 2);
+
+    if (mode === 'placeSquaresFixedMask' && mask !== 'none') {
+      // Fixed Mask Mode: Clip canvas center first, then draw raw photo with user adjustments behind frame
+      mCtx.beginPath();
+      if (mask === 'rounded') {
+        const x = (modalCanvas.width - rawImg.width) / 2;
+        const y = (modalCanvas.height - rawImg.height) / 2;
+        mCtx.roundRect(x, y, rawImg.width, rawImg.height, r);
+      } else if (mask === 'ellipse') {
+        mCtx.ellipse(modalCanvas.width / 2, modalCanvas.height / 2, rawImg.width / 2, rawImg.height / 2, 0, 0, 2 * Math.PI);
+      }
+      mCtx.clip();
+
+      mCtx.translate(modalCanvas.width / 2 + parseInt(modX.value, 10), modalCanvas.height / 2 + parseInt(modY.value, 10));
+      mCtx.rotate(parseInt(modRotate.value, 10) * Math.PI / 180);
+      mCtx.scale(parseFloat(modScale.value), parseFloat(modScale.value));
+      mCtx.drawImage(rawImg, -rawImg.width / 2, -rawImg.height / 2);
+    } else {
+      // Default Mode: Move image together with pre-clipped mask
+      const img = applyMaskToAsset(rawImg, mask, r);
+      mCtx.translate(modalCanvas.width / 2 + parseInt(modX.value, 10), modalCanvas.height / 2 + parseInt(modY.value, 10));
+      mCtx.rotate(parseInt(modRotate.value, 10) * Math.PI / 180);
+      mCtx.scale(parseFloat(modScale.value), parseFloat(modScale.value));
+      mCtx.drawImage(img, -img.width / 2, -img.height / 2);
+    }
+
     mCtx.restore();
   }
 
@@ -1061,7 +1084,7 @@
   }
 
   function resetCurrentTransforms() {
-    if (sizeMode.value === 'placeSquares') {
+    if (sizeMode.value === 'placeSquares' || sizeMode.value === 'placeSquaresFixedMask') {
       transforms[currentSingleIdx] = JSON.parse(JSON.stringify(initialMasterTransforms[currentSingleIdx]));
       const t = transforms[currentSingleIdx];
       modScale.value = t.scale; modRotate.value = t.rot; modX.value = t.x; modY.value = t.y;
@@ -1077,7 +1100,7 @@
 
   [modScale, modRotate, modX, modY].forEach(el => {
     el.addEventListener('input', () => {
-      if (sizeMode.value === 'placeSquares') {
+      if (sizeMode.value === 'placeSquares' || sizeMode.value === 'placeSquaresFixedMask') {
         transforms[currentSingleIdx] = {
           scale: parseFloat(modScale.value),
           rot: parseInt(modRotate.value, 10),
@@ -1093,7 +1116,7 @@
   });
 
   modalDoneBtn.addEventListener('click', () => {
-    if (sizeMode.value === 'placeSquares') {
+    if (sizeMode.value === 'placeSquares' || sizeMode.value === 'placeSquaresFixedMask') {
       currentSingleIdx++;
       if (currentSingleIdx < rawImages.length) {
         openSingleSquareModal(currentSingleIdx);
@@ -1150,7 +1173,7 @@
       processed = [masterCanvas];
     } else {
       let activeImages = rawImages;
-      if (mode === 'placeSquares' || mode === 'padSquareMax') {
+      if (mode === 'placeSquares' || mode === 'placeSquaresFixedMask' || mode === 'padSquareMax') {
         activeImages = normalizeImagesToSameLongestEdge(rawImages);
       }
 
@@ -1211,6 +1234,39 @@
           cCtx.scale(t.scale, t.scale);
           cCtx.drawImage(maskedImg, -maskedImg.width / 2, -maskedImg.height / 2);
           cCtx.restore();
+          return c;
+        }
+        else if (mode === 'placeSquaresFixedMask') {
+          const maxEdge = Math.max(img.width, img.height);
+          const c = document.createElement('canvas');
+          c.width = maxEdge + s; c.height = maxEdge + s;
+          const cCtx = c.getContext('2d');
+
+          if (innerColorVal !== 'none') {
+            cCtx.fillStyle = innerColorVal;
+            cCtx.fillRect(0, 0, c.width, c.height);
+          }
+
+          cCtx.save();
+          if (mask !== 'none') {
+            cCtx.beginPath();
+            if (mask === 'rounded') {
+              const x = (c.width - img.width) / 2;
+              const y = (c.height - img.height) / 2;
+              cCtx.roundRect(x, y, img.width, img.height, r);
+            } else if (mask === 'ellipse') {
+              cCtx.ellipse(c.width / 2, c.height / 2, img.width / 2, img.height / 2, 0, 0, 2 * Math.PI);
+            }
+            cCtx.clip();
+          }
+
+          const t = transforms[idx];
+          cCtx.translate(c.width / 2 + t.x, c.height / 2 + t.y);
+          cCtx.rotate(t.rot * Math.PI / 180);
+          cCtx.scale(t.scale, t.scale);
+          cCtx.drawImage(img, -img.width / 2, -img.height / 2);
+          cCtx.restore();
+
           return c;
         }
         else if (mode === 'padSquareMax') {
@@ -1325,7 +1381,7 @@
     saveBtn.disabled = false;
   }
 
-  // Enhanced Native Share Sheet / Direct Save Handler
+  // Native Share Sheet / Direct Save Handler
   saveBtn.addEventListener('click', () => {
     canvas.toBlob(async (blob) => {
       const fileName = `collage-${Date.now()}.png`;
