@@ -309,13 +309,11 @@
 <div class="card">
   <h1>Collage Generator</h1>
 
-  <!-- 1. Input Photos -->
   <div class="control">
     <label for="imgInput">1. Select Photos</label>
     <input type="file" id="imgInput" accept="image/*" multiple>
   </div>
 
-  <!-- 2. Spacing & Colors -->
   <div class="section-title">2. Spacing & Colors</div>
   <div class="row">
     <div class="control">
@@ -340,7 +338,9 @@
         <input type="color" class="color-picker-box" id="outerColor" value="#1c1c1e">
       </button>
     </div>
+  </div>
 
+  <div class="control disabled" id="paletteGroup">
     <label>Sampled Image Palette (Click "None" for Transparent):</label>
     <div class="palette-container">
       <div class="palette-swatches" id="paletteArea">
@@ -349,7 +349,6 @@
     </div>
   </div>
 
-  <!-- 3. Photo Shape & Placement -->
   <div class="section-title">3. Photo Shape & Placement</div>
   <div class="control">
     <label for="sizeMode">Select Shape & Placement Option</label>
@@ -363,7 +362,6 @@
     </select>
   </div>
 
-  <!-- 4. Photo Masking -->
   <div class="section-title">4. Photo Masking</div>
   <div class="control">
     <label for="maskMode">Select Mask Option</label>
@@ -379,7 +377,6 @@
     <input type="range" id="cornerRadius" min="0" max="150" value="30">
   </div>
 
-  <!-- 5. Final Arrangement -->
   <div class="section-title" id="arrangementTitle">5. Final Layout & Assembly</div>
   <div class="row" id="arrangementRow">
     <div class="control" id="layoutTypeControl">
@@ -410,7 +407,6 @@
   </div>
 </div>
 
-<!-- Interactive Placement Modal -->
 <div class="modal" id="editorModal">
   <div class="modal-content">
     <h3 id="modalTitle">Adjust Photo Placement</h3>
@@ -456,6 +452,7 @@
   const imgInput = document.getElementById('imgInput');
   const innerSpacing = document.getElementById('innerSpacing');
   const outerSpacing = document.getElementById('outerSpacing');
+  const paletteGroup = document.getElementById('paletteGroup');
   const paletteArea = document.getElementById('paletteArea');
   const innerColor = document.getElementById('innerColor');
   const outerColor = document.getElementById('outerColor');
@@ -489,8 +486,8 @@
   const modalDoneBtn = document.getElementById('modalDoneBtn');
 
   let activeColorTarget = 'inner';
-  let innerColorVal = '#ffffff'; // 'none' for transparent
-  let outerColorVal = '#1c1c1e'; // 'none' for transparent
+  let innerColorVal = '#ffffff';
+  let outerColorVal = '#1c1c1e';
   let rawImages = [];
   let transforms = [];
   let initialMasterTransforms = [];
@@ -498,7 +495,6 @@
   let currentSingleIdx = 0;
   let selectedMasterIndices = new Set([0]);
 
-  // Handle Number Input Fallback to Zero
   [innerSpacing, outerSpacing].forEach(input => {
     input.addEventListener('input', () => {
       if (input.value === '' || isNaN(parseInt(input.value, 10))) {
@@ -543,7 +539,6 @@
     } else if (sizeMode.value === 'sameWidth') {
       layoutType.value = 'vertical';
     } else if (sizeMode.value !== 'placeOneSquare') {
-      // Smart Auto-Selection for Grid when selecting other modes
       layoutType.value = 'grid';
       applySmartGridColumns();
     }
@@ -591,7 +586,6 @@
     if (!files.length) return;
 
     rawImages = [];
-    // Clear dynamic swatches while preserving "None" button
     const noneBtn = paletteArea.querySelector('.swatch-none');
     paletteArea.innerHTML = '';
     paletteArea.appendChild(noneBtn);
@@ -627,6 +621,7 @@
     applySmartGridColumns();
     extractSortedPalette(rawImages);
     generateBtn.disabled = false;
+    paletteGroup.classList.remove('disabled'); // Unlock palette group once photos are uploaded
     updateUIGraying();
   });
 
@@ -993,7 +988,6 @@
     }
   });
 
-  // Apply Mask directly onto an image asset before padding/assembly
   function applyMaskToAsset(imgAsset, maskType, radius) {
     if (maskType === 'none') return imgAsset;
 
