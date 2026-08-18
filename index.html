@@ -321,13 +321,11 @@
 <div class="card">
   <h1>Collage Generator</h1>
 
-  <!-- 1. Input Photos -->
   <div class="control">
     <label for="imgInput">1. Select Photos</label>
     <input type="file" id="imgInput" accept="image/*" multiple>
   </div>
 
-  <!-- 2. Spacing & Colors -->
   <div class="section-title">2. Spacing & Colors</div>
   <div class="row">
     <div class="control">
@@ -354,7 +352,6 @@
     </div>
   </div>
 
-  <!-- Grayed out until photos are uploaded -->
   <div class="control disabled" id="paletteGroup">
     <label>Sampled Image Palette (Click "None" for Transparent):</label>
     <div class="palette-container">
@@ -364,7 +361,6 @@
     </div>
   </div>
 
-  <!-- 3. Photo Shape & Placement -->
   <div class="section-title">3. Photo Shape & Placement</div>
   <div class="control">
     <label for="sizeMode">Select Shape & Placement Option</label>
@@ -378,7 +374,6 @@
     </select>
   </div>
 
-  <!-- 4. Photo Masking -->
   <div class="section-title">4. Photo Masking</div>
   <div class="control">
     <label for="maskMode">Select Mask Option</label>
@@ -394,7 +389,6 @@
     <input type="range" id="cornerRadius" min="0" max="150" value="30">
   </div>
 
-  <!-- 5. Final Arrangement -->
   <div class="section-title" id="arrangementTitle">5. Final Layout & Assembly</div>
   <div class="row" id="arrangementRow">
     <div class="control" id="layoutTypeControl">
@@ -425,7 +419,6 @@
   </div>
 </div>
 
-<!-- Interactive Placement Modal -->
 <div class="modal" id="editorModal">
   <div class="modal-content">
     <h3 id="modalTitle">Adjust Photo Placement</h3>
@@ -515,7 +508,7 @@
   let rawImages = [];
   let transforms = [];
   let initialMasterTransforms = [];
-  let layerOrder = []; // Array of indices tracking bottom-to-top rendering order
+  let layerOrder = [];
   let lastSliderState = { scale: 1, rot: 0, x: 0, y: 0 };
   let currentSingleIdx = 0;
   let selectedMasterIndices = new Set([0]);
@@ -565,7 +558,6 @@
     }
   }
 
-  // Dynamic UI & Smart Auto-Arrangement
   sizeMode.addEventListener('change', () => {
     if (sizeMode.value === 'sameHeight') {
       layoutType.value = 'horizontal';
@@ -757,7 +749,7 @@
     } else if (mode === 'placeOneSquare') {
       calculateInitialMasterGridTransforms();
       initialMasterTransforms = JSON.parse(JSON.stringify(transforms));
-      layerOrder = rawImages.map((_, idx) => idx); // Initialize default z-index order
+      layerOrder = rawImages.map((_, idx) => idx);
       selectedMasterIndices = new Set([0]);
       photoSelectorGroup.style.display = 'block';
       buildMasterPhotoSelector();
@@ -907,7 +899,6 @@
     renderMasterSquareCanvas();
   }
 
-  // Move Selected Layer Z-Indices Forward / Backward
   function moveSelectedLayers(direction) {
     if (selectedMasterIndices.size === 0) return;
 
@@ -986,7 +977,6 @@
       mCtx.fillRect(0, 0, modalCanvas.width, modalCanvas.height);
     }
 
-    // Render layers in layerOrder sequence (bottom-to-top)
     layerOrder.forEach(idx => {
       const rawImg = normImages[idx];
       const img = applyMaskToAsset(rawImg, mask, r);
@@ -1115,7 +1105,6 @@
         mCtxOut.fillRect(0, 0, masterCanvas.width, masterCanvas.height);
       }
 
-      // Render layers using custom layerOrder sequence
       layerOrder.forEach(idx => {
         const rawImg = normImages[idx];
         const maskedImg = applyMaskToAsset(rawImg, mask, r);
@@ -1142,7 +1131,8 @@
       });
 
       processed = activeImages.map((img, idx) => {
-        const maskedImg = applyMaskToAsset(img, mask, r);
+        // Step 1: Apply Shape / Sizing Logic
+        let shapedImg = img;
 
         if (mode === 'square') {
           const c = document.createElement('canvas');
@@ -1150,29 +1140,33 @@
           c.height = minEdge;
           const srcDim = Math.min(img.width, img.height);
           c.getContext('2d').drawImage(
-            maskedImg, 
+            img, 
             (img.width - srcDim) / 2, (img.height - srcDim) / 2, srcDim, srcDim, 
             0, 0, minEdge, minEdge
           );
-          return c;
+          shapedImg = c;
         } 
         else if (mode === 'sameHeight') {
           const targetH = 400;
           const targetW = Math.round(targetH * (img.width / img.height));
           const c = document.createElement('canvas');
           c.width = targetW; c.height = targetH;
-          c.getContext('2d').drawImage(maskedImg, 0, 0, targetW, targetH);
-          return c;
+          c.getContext('2d').drawImage(img, 0, 0, targetW, targetH);
+          shapedImg = c;
         } 
         else if (mode === 'sameWidth') {
           const targetW = 400;
           const targetH = Math.round(targetW * (img.height / img.width));
           const c = document.createElement('canvas');
           c.width = targetW; c.height = targetH;
-          c.getContext('2d').drawImage(maskedImg, 0, 0, targetW, targetH);
-          return c;
+          c.getContext('2d').drawImage(img, 0, 0, targetW, targetH);
+          shapedImg = c;
         }
-        else if (mode === 'placeSquares') {
+
+        // Step 2: Apply Mask after shaping so Ellipse / Rounded Rec remain clean
+        const maskedImg = applyMaskToAsset(shapedImg, mask, r);
+
+        if (mode === 'placeSquares') {
           const maxEdge = Math.max(img.width, img.height);
           const c = document.createElement('canvas');
           c.width = maxEdge + s; c.height = maxEdge + s;
@@ -1203,6 +1197,7 @@
           cCtx.drawImage(maskedImg, (maxEdge - maskedImg.width) / 2, (maxEdge - maskedImg.height) / 2);
           return c;
         }
+
         return maskedImg;
       });
     }
