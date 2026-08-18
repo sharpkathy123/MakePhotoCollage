@@ -301,6 +301,13 @@
       color: var(--accent-color);
     }
 
+    .layer-controls-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 6px;
+      margin-bottom: 10px;
+    }
+
     .small-link {
       color: var(--accent-color);
       cursor: pointer;
@@ -314,11 +321,13 @@
 <div class="card">
   <h1>Collage Generator</h1>
 
+  <!-- 1. Input Photos -->
   <div class="control">
     <label for="imgInput">1. Select Photos</label>
     <input type="file" id="imgInput" accept="image/*" multiple>
   </div>
 
+  <!-- 2. Spacing & Colors -->
   <div class="section-title">2. Spacing & Colors</div>
   <div class="row">
     <div class="control">
@@ -345,6 +354,7 @@
     </div>
   </div>
 
+  <!-- Grayed out until photos are uploaded -->
   <div class="control disabled" id="paletteGroup">
     <label>Sampled Image Palette (Click "None" for Transparent):</label>
     <div class="palette-container">
@@ -354,6 +364,7 @@
     </div>
   </div>
 
+  <!-- 3. Photo Shape & Placement -->
   <div class="section-title">3. Photo Shape & Placement</div>
   <div class="control">
     <label for="sizeMode">Select Shape & Placement Option</label>
@@ -367,6 +378,7 @@
     </select>
   </div>
 
+  <!-- 4. Photo Masking -->
   <div class="section-title">4. Photo Masking</div>
   <div class="control">
     <label for="maskMode">Select Mask Option</label>
@@ -382,6 +394,7 @@
     <input type="range" id="cornerRadius" min="0" max="150" value="30">
   </div>
 
+  <!-- 5. Final Arrangement -->
   <div class="section-title" id="arrangementTitle">5. Final Layout & Assembly</div>
   <div class="row" id="arrangementRow">
     <div class="control" id="layoutTypeControl">
@@ -412,6 +425,7 @@
   </div>
 </div>
 
+<!-- Interactive Placement Modal -->
 <div class="modal" id="editorModal">
   <div class="modal-content">
     <h3 id="modalTitle">Adjust Photo Placement</h3>
@@ -422,6 +436,11 @@
         <span class="small-link" id="selectAllBtn" onclick="toggleSelectAllPhotos()">Select All</span>
       </div>
       <div id="photoBtnList" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"></div>
+
+      <div class="layer-controls-row">
+        <button class="btn-secondary" style="flex:1;" type="button" onclick="moveSelectedLayers('forward')">Bring Forward ▲</button>
+        <button class="btn-secondary" style="flex:1;" type="button" onclick="moveSelectedLayers('backward')">Send Backward ▼</button>
+      </div>
     </div>
 
     <div class="modal-canvas-container">
@@ -496,6 +515,7 @@
   let rawImages = [];
   let transforms = [];
   let initialMasterTransforms = [];
+  let layerOrder = []; // Array of indices tracking bottom-to-top rendering order
   let lastSliderState = { scale: 1, rot: 0, x: 0, y: 0 };
   let currentSingleIdx = 0;
   let selectedMasterIndices = new Set([0]);
@@ -737,6 +757,7 @@
     } else if (mode === 'placeOneSquare') {
       calculateInitialMasterGridTransforms();
       initialMasterTransforms = JSON.parse(JSON.stringify(transforms));
+      layerOrder = rawImages.map((_, idx) => idx); // Initialize default z-index order
       selectedMasterIndices = new Set([0]);
       photoSelectorGroup.style.display = 'block';
       buildMasterPhotoSelector();
@@ -782,6 +803,28 @@
     });
   }
 
+  function applyMaskToAsset(imgAsset, maskType, radius) {
+    if (maskType === 'none') return imgAsset;
+
+    const c = document.createElement('canvas');
+    c.width = imgAsset.width; 
+    c.height = imgAsset.height;
+    const cCtx = c.getContext('2d');
+
+    cCtx.save();
+    cCtx.beginPath();
+    if (maskType === 'rounded') {
+      cCtx.roundRect(0, 0, c.width, c.height, radius);
+    } else if (maskType === 'ellipse') {
+      cCtx.ellipse(c.width / 2, c.height / 2, c.width / 2, c.height / 2, 0, 0, 2 * Math.PI);
+    }
+    cCtx.clip();
+    cCtx.drawImage(imgAsset, 0, 0);
+    cCtx.restore();
+
+    return c;
+  }
+
   function openSingleSquareModal(idx) {
     editorModal.style.display = 'flex';
     modalTitle.textContent = `Edit Placement: Photo ${idx + 1} of ${rawImages.length}`;
@@ -808,7 +851,11 @@
 
   function renderSingleSquareCanvas() {
     const normImages = normalizeImagesToSameLongestEdge(rawImages);
-    const img = normImages[currentSingleIdx];
+    const rawImg = normImages[currentSingleIdx];
+    const mask = maskMode.value;
+    const r = parseInt(cornerRadius.value, 10) || 0;
+    const img = applyMaskToAsset(rawImg, mask, r);
+
     mCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
 
     if (innerColorVal !== 'none') {
@@ -860,6 +907,37 @@
     renderMasterSquareCanvas();
   }
 
+  // Move Selected Layer Z-Indices Forward / Backward
+  function moveSelectedLayers(direction) {
+    if (selectedMasterIndices.size === 0) return;
+
+    const indicesToMove = Array.from(selectedMasterIndices);
+
+    if (direction === 'forward') {
+      indicesToMove.sort((a, b) => layerOrder.indexOf(b) - layerOrder.indexOf(a));
+      indicesToMove.forEach(idx => {
+        const currentPos = layerOrder.indexOf(idx);
+        if (currentPos < layerOrder.length - 1) {
+          const temp = layerOrder[currentPos + 1];
+          layerOrder[currentPos + 1] = idx;
+          layerOrder[currentPos] = temp;
+        }
+      });
+    } else {
+      indicesToMove.sort((a, b) => layerOrder.indexOf(a) - layerOrder.indexOf(b));
+      indicesToMove.forEach(idx => {
+        const currentPos = layerOrder.indexOf(idx);
+        if (currentPos > 0) {
+          const temp = layerOrder[currentPos - 1];
+          layerOrder[currentPos - 1] = idx;
+          layerOrder[currentPos] = temp;
+        }
+      });
+    }
+
+    renderMasterSquareCanvas();
+  }
+
   function openMasterSquareModal() {
     editorModal.style.display = 'flex';
     modalTitle.textContent = "Edit Placement on Master Swatch";
@@ -898,6 +976,9 @@
 
   function renderMasterSquareCanvas() {
     const normImages = normalizeImagesToSameLongestEdge(rawImages);
+    const mask = maskMode.value;
+    const r = parseInt(cornerRadius.value, 10) || 0;
+
     mCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
 
     if (innerColorVal !== 'none') {
@@ -905,7 +986,10 @@
       mCtx.fillRect(0, 0, modalCanvas.width, modalCanvas.height);
     }
 
-    normImages.forEach((img, idx) => {
+    // Render layers in layerOrder sequence (bottom-to-top)
+    layerOrder.forEach(idx => {
+      const rawImg = normImages[idx];
+      const img = applyMaskToAsset(rawImg, mask, r);
       const t = transforms[idx];
       const centerX = modalCanvas.width / 2 + t.x;
       const centerY = modalCanvas.height / 2 + t.y;
@@ -1003,28 +1087,6 @@
     }
   });
 
-  function applyMaskToAsset(imgAsset, maskType, radius) {
-    if (maskType === 'none') return imgAsset;
-
-    const c = document.createElement('canvas');
-    c.width = imgAsset.width; 
-    c.height = imgAsset.height;
-    const cCtx = c.getContext('2d');
-
-    cCtx.save();
-    cCtx.beginPath();
-    if (maskType === 'rounded') {
-      cCtx.roundRect(0, 0, c.width, c.height, radius);
-    } else if (maskType === 'ellipse') {
-      cCtx.ellipse(c.width / 2, c.height / 2, c.width / 2, c.height / 2, 0, 0, 2 * Math.PI);
-    }
-    cCtx.clip();
-    cCtx.drawImage(imgAsset, 0, 0);
-    cCtx.restore();
-
-    return c;
-  }
-
   // Main Assembly Engine
   function buildCollage() {
     const s = parseInt(innerSpacing.value, 10) || 0;
@@ -1053,8 +1115,10 @@
         mCtxOut.fillRect(0, 0, masterCanvas.width, masterCanvas.height);
       }
 
-      normImages.forEach((img, idx) => {
-        const maskedImg = applyMaskToAsset(img, mask, r);
+      // Render layers using custom layerOrder sequence
+      layerOrder.forEach(idx => {
+        const rawImg = normImages[idx];
+        const maskedImg = applyMaskToAsset(rawImg, mask, r);
         const t = transforms[idx];
         mCtxOut.save();
         mCtxOut.translate(masterCanvas.width / 2 + t.x, masterCanvas.width / 2 + t.y);
@@ -1223,10 +1287,8 @@
       canvas.height = collageCanvas.height + (b * 2);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Draw collage centered
       ctx.drawImage(collageCanvas, b, b);
 
-      // Draw hollow outer frame stroke
       ctx.strokeStyle = outerColorVal;
       ctx.lineWidth = b;
       ctx.strokeRect(b / 2, b / 2, canvas.width - b, canvas.height - b);
