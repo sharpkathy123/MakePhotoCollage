@@ -1,41 +1,44 @@
-const CACHE_NAME = 'collage-builder-v1';
+// Service Worker with Timestamped Cache Key
+const CACHE_NAME = 'collage-cache-2026-08-18-1507';
+
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './manifest.json'
+  './manifest.json',
+  './sw.js'
 ];
 
-// Install Event: Save app files into offline cache
+// Install Event: Force immediate activation of new Service Worker
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS_TO_CACHE);
     })
   );
-  self.skipWaiting();
 });
 
-// Activate Event: Clean up old cache versions if updated
+// Activate Event: Delete old caches and take control of all open clients immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
+            console.log('[Service Worker] Deleting stale cache:', key);
             return caches.delete(key);
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Fetch Event: Serve cached local files when offline
+// Fetch Event: Serve from cache, fall back to network
 self.addEventListener('fetch', (event) => {
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request);
+    caches.match(event.request).then((cachedResponse) => {
+      return cachedResponse || fetch(event.request);
     })
   );
 });
