@@ -172,6 +172,10 @@
     .color-picker-box::-webkit-color-swatch-wrapper { padding: 0; }
     .color-picker-box::-webkit-color-swatch { border: none; border-radius: 50%; }
 
+    .color-picker-box.transparent-active::-webkit-color-swatch {
+      background: repeating-linear-gradient(45deg, #ccc, #ccc 4px, #fff 4px, #fff 8px);
+    }
+
     .palette-container {
       width: 100%;
       overflow-x: auto;
@@ -212,6 +216,7 @@
       font-size: 0.65rem;
       font-weight: bold;
       color: #ff3b30;
+      user-select: none;
     }
 
     .swatch:hover, .swatch-none:hover {
@@ -403,7 +408,7 @@
 
   <div id="preview-area">
     <canvas id="collageCanvas"></canvas>
-    <button class="btn-save" id="saveBtn" disabled>Save / Download Collage</button>
+    <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
   </div>
 </div>
 
@@ -515,20 +520,29 @@
   }
 
   innerColor.addEventListener('input', (e) => {
-    if (activeColorTarget === 'inner') innerColorVal = e.target.value;
+    if (activeColorTarget === 'inner') {
+      innerColorVal = e.target.value;
+      innerColor.classList.remove('transparent-active');
+    }
   });
   outerColor.addEventListener('input', (e) => {
-    if (activeColorTarget === 'outer') outerColorVal = e.target.value;
+    if (activeColorTarget === 'outer') {
+      outerColorVal = e.target.value;
+      outerColor.classList.remove('transparent-active');
+    }
   });
 
   innerColor.addEventListener('click', (e) => e.stopPropagation());
   outerColor.addEventListener('click', (e) => e.stopPropagation());
 
+  // Transparent Selection Fix
   function setTransparentColor() {
     if (activeColorTarget === 'inner') {
       innerColorVal = 'none';
+      innerColor.classList.add('transparent-active');
     } else {
       outerColorVal = 'none';
+      outerColor.classList.add('transparent-active');
     }
   }
 
@@ -621,7 +635,7 @@
     applySmartGridColumns();
     extractSortedPalette(rawImages);
     generateBtn.disabled = false;
-    paletteGroup.classList.remove('disabled'); // Unlock palette group once photos are uploaded
+    paletteGroup.classList.remove('disabled');
     updateUIGraying();
   });
 
@@ -682,9 +696,11 @@
         if (activeColorTarget === 'inner') {
           innerColorVal = col.hex;
           innerColor.value = col.hex;
+          innerColor.classList.remove('transparent-active');
         } else {
           outerColorVal = col.hex;
           outerColor.value = col.hex;
+          outerColor.classList.remove('transparent-active');
         }
       };
       paletteArea.appendChild(swatch);
@@ -1221,16 +1237,38 @@
     saveBtn.disabled = false;
   }
 
+  // Enhanced Native Share Sheet / Direct Save Handler
   saveBtn.addEventListener('click', () => {
-    canvas.toBlob(blob => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `collage-${Date.now()}.png`;
-      a.click();
-      URL.revokeObjectURL(url);
+    canvas.toBlob(async (blob) => {
+      const fileName = `collage-${Date.now()}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+
+      // Use Web Share API if supported (Native iOS Share Sheet for direct "Save Image" / "Save to Files")
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: 'Collage',
+            text: 'Here is your generated collage.'
+          });
+        } catch (err) {
+          // Fallback if user cancels or share fails
+          if (err.name !== 'AbortError') fallbackDownload(blob, fileName);
+        }
+      } else {
+        fallbackDownload(blob, fileName);
+      }
     }, 'image/png');
   });
+
+  function fallbackDownload(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   updateUIGraying();
 </script>
