@@ -11,6 +11,7 @@
       --accent-color: #007aff;
       --text-color: #1c1c1e;
       --border-color: #e5e5ea;
+      --success-color: #34c759;
     }
 
     body {
@@ -100,6 +101,19 @@
       margin-top: 14px;
     }
 
+    .btn-save {
+      background-color: var(--success-color);
+      color: white;
+      border: none;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      width: 100%;
+      cursor: pointer;
+      margin-top: 14px;
+    }
+
     .btn-secondary {
       background-color: #e5e5ea;
       color: #1c1c1e;
@@ -112,7 +126,7 @@
       margin-top: 8px;
     }
 
-    .btn:disabled {
+    .btn:disabled, .btn-save:disabled {
       background-color: #c7c7cc;
       cursor: not-allowed;
     }
@@ -365,6 +379,7 @@
 
   <div id="preview-area">
     <canvas id="collageCanvas"></canvas>
+    <button class="btn-save" id="saveBtn" disabled>Save / Download Collage</button>
   </div>
 </div>
 
@@ -430,6 +445,7 @@
   const arrangementTitle = document.getElementById('arrangementTitle');
   const arrangementRow = document.getElementById('arrangementRow');
   const generateBtn = document.getElementById('generateBtn');
+  const saveBtn = document.getElementById('saveBtn');
   const canvas = document.getElementById('collageCanvas');
   const ctx = canvas.getContext('2d');
 
@@ -468,6 +484,16 @@
   innerColor.addEventListener('click', (e) => e.stopPropagation());
   outerColor.addEventListener('click', (e) => e.stopPropagation());
 
+  // Smart Auto-Arrangement Defaults
+  sizeMode.addEventListener('change', () => {
+    if (sizeMode.value === 'sameHeight') {
+      layoutType.value = 'horizontal';
+    } else if (sizeMode.value === 'sameWidth') {
+      layoutType.value = 'vertical';
+    }
+    updateUIGraying();
+  });
+
   // Dynamic UI Graying Logic
   function updateUIGraying() {
     // Gray out Corner Radius when Mask is not Rounded
@@ -492,7 +518,7 @@
     }
   }
 
-  [maskMode, sizeMode, layoutType].forEach(el => el.addEventListener('change', updateUIGraying));
+  [maskMode, layoutType].forEach(el => el.addEventListener('change', updateUIGraying));
 
   cornerRadius.addEventListener('input', () => {
     radiusVal.textContent = cornerRadius.value;
@@ -1111,7 +1137,22 @@
     ctx.fillStyle = outerColor.value;
     ctx.fillRect(0, 0, finalW, finalH);
     ctx.drawImage(collageCanvas, b, b);
+
+    // Enable Save Button
+    saveBtn.disabled = false;
   }
+
+  // Save / Export Handler
+  saveBtn.addEventListener('click', () => {
+    canvas.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `collage-${Date.now()}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }, 'image/png');
+  });
 
   updateUIGraying();
 </script>
