@@ -99,7 +99,42 @@
       cursor: not-allowed;
     }
 
-    /* Horizontal Full-Width Scrollable Palette */
+    /* Color Selection UI */
+    .color-target-toggle {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .target-btn {
+      flex: 1;
+      padding: 10px;
+      border: 2px solid var(--border-color);
+      border-radius: 8px;
+      background: #fafafa;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.2s ease;
+    }
+
+    .target-btn.active {
+      border-color: var(--accent-color);
+      background: #eef6ff;
+      color: var(--accent-color);
+    }
+
+    .color-preview-pill {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 1px solid rgba(0,0,0,0.2);
+      display: inline-block;
+    }
+
     .palette-container {
       width: 100%;
       overflow-x: auto;
@@ -182,7 +217,9 @@
       background: #f0f0f0;
       cursor: pointer;
       font-size: 0.85rem;
+      font-weight: 600;
     }
+
     .target-select-btn.active {
       background: var(--accent-color);
       color: white;
@@ -213,20 +250,24 @@
   </div>
 
   <div class="control">
-    <label>Sampled Color Palette (Click to set Inner Spacing color)</label>
+    <label>Choose Color to Assign</label>
+    <div class="color-target-toggle">
+      <button class="target-btn active" id="targetInnerBtn" onclick="setActiveColorTarget('inner')">
+        <span>1. Inner Color</span>
+        <span class="color-preview-pill" id="innerPill" style="background-color: #ffffff;"></span>
+      </button>
+      <button class="target-btn" id="targetOuterBtn" onclick="setActiveColorTarget('outer')">
+        <span>2. Outer Border</span>
+        <span class="color-preview-pill" id="outerPill" style="background-color: #1c1c1e;"></span>
+      </button>
+    </div>
+
+    <input type="color" id="innerColor" value="#ffffff" style="display:none;">
+    <input type="color" id="outerColor" value="#1c1c1e" style="display:none;">
+
+    <label>Sampled Image Palette (Click any swatch to apply to active target):</label>
     <div class="palette-container">
       <div class="palette-swatches" id="paletteArea"></div>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="control">
-      <label for="innerColor">Inner Spacing Color</label>
-      <input type="color" id="innerColor" value="#ffffff">
-    </div>
-    <div class="control">
-      <label for="outerColor">Outer Border Color</label>
-      <input type="color" id="outerColor" value="#1c1c1e">
     </div>
   </div>
 
@@ -234,7 +275,7 @@
   <div class="control">
     <label for="sizeMode">Select Shape & Placement Option</label>
     <select id="sizeMode">
-      <option value="square">Crop to square</option>
+      <option value="square">Crop to square (All uniform dimensions)</option>
       <option value="sameHeight">Same height</option>
       <option value="sameWidth">Same width</option>
       <option value="placeSquares">Edit places in squares (Interactive per photo)</option>
@@ -329,6 +370,10 @@
   const paletteArea = document.getElementById('paletteArea');
   const innerColor = document.getElementById('innerColor');
   const outerColor = document.getElementById('outerColor');
+  const innerPill = document.getElementById('innerPill');
+  const outerPill = document.getElementById('outerPill');
+  const targetInnerBtn = document.getElementById('targetInnerBtn');
+  const targetOuterBtn = document.getElementById('targetOuterBtn');
   const sizeMode = document.getElementById('sizeMode');
   const maskMode = document.getElementById('maskMode');
   const cornerRadius = document.getElementById('cornerRadius');
@@ -354,10 +399,27 @@
   const modY = document.getElementById('modY');
   const modalDoneBtn = document.getElementById('modalDoneBtn');
 
+  let activeColorTarget = 'inner'; // 'inner' or 'outer'
   let rawImages = [];
   let transforms = [];
   let currentSingleIdx = 0;
   let activeMasterIdx = 0;
+
+  // Toggle Active Color Target
+  function setActiveColorTarget(target) {
+    activeColorTarget = target;
+    if (target === 'inner') {
+      targetInnerBtn.classList.add('active');
+      targetOuterBtn.classList.remove('active');
+    } else {
+      targetOuterBtn.classList.add('active');
+      targetInnerBtn.classList.remove('active');
+    }
+  }
+
+  // Sync Color Inputs
+  innerColor.addEventListener('input', () => innerPill.style.backgroundColor = innerColor.value);
+  outerColor.addEventListener('input', () => outerPill.style.backgroundColor = outerColor.value);
 
   // UI Event Listeners
   maskMode.addEventListener('change', () => {
@@ -370,7 +432,7 @@
     gridColsGroup.style.display = (layoutType.value === 'grid') ? 'flex' : 'none';
   });
 
-  // Load Images & Extract Screen-Width Palette
+  // Load Images & Extract Palette
   imgInput.addEventListener('change', async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
@@ -386,7 +448,6 @@
       });
     }));
 
-    // Find max input size to downscale to appropriate bounds
     let maxArea = 0;
     loadedImgs.forEach(img => {
       const area = img.width * img.height;
@@ -411,7 +472,6 @@
     generateBtn.disabled = false;
   });
 
-  // Sample across full grid to generate rich horizontally scrollable palette
   function extractHorizontalPalette(canvases) {
     const colorSet = new Set();
 
@@ -435,7 +495,13 @@
       swatch.style.backgroundColor = hex;
       swatch.title = hex;
       swatch.onclick = () => {
-        innerColor.value = hex;
+        if (activeColorTarget === 'inner') {
+          innerColor.value = hex;
+          innerPill.style.backgroundColor = hex;
+        } else {
+          outerColor.value = hex;
+          outerPill.style.backgroundColor = hex;
+        }
       };
       paletteArea.appendChild(swatch);
     });
@@ -444,13 +510,14 @@
   // Trigger Interactive Modal depending on mode
   generateBtn.addEventListener('click', () => {
     const mode = sizeMode.value;
-    transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
 
     if (mode === 'placeSquares') {
+      transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
       currentSingleIdx = 0;
       photoSelectorGroup.style.display = 'none';
       openSingleSquareModal(0);
     } else if (mode === 'placeOneSquare') {
+      calculateInitialMasterGridTransforms();
       activeMasterIdx = 0;
       photoSelectorGroup.style.display = 'block';
       buildMasterPhotoSelector();
@@ -460,7 +527,46 @@
     }
   });
 
-  // Mode: "Edit places in squares" (One photo per square swatch)
+  // Calculate Initial Non-Overlapping Layout for Master Swatch Mode
+  function calculateInitialMasterGridTransforms() {
+    let maxEdge = 0;
+    rawImages.forEach(img => {
+      const edge = Math.max(img.width, img.height);
+      if (edge > maxEdge) maxEdge = edge;
+    });
+
+    const s = parseInt(innerSpacing.value, 10);
+    const canvasSize = maxEdge + s;
+
+    const count = rawImages.length;
+    const cols = Math.ceil(Math.sqrt(count));
+    const rows = Math.ceil(count / cols);
+
+    const cellW = canvasSize / cols;
+    const cellH = canvasSize / rows;
+
+    transforms = rawImages.map((img, idx) => {
+      const col = idx % cols;
+      const row = Math.floor(idx / cols);
+
+      // Center of cell relative to canvas center (0,0)
+      const cellCenterX = (col * cellW + cellW / 2) - (canvasSize / 2);
+      const cellCenterY = (row * cellH + cellH / 2) - (canvasSize / 2);
+
+      // Scale photo to fit neatly within its grid quadrant
+      const maxImgDim = Math.max(img.width, img.height);
+      const fitScale = (Math.min(cellW, cellH) * 0.8) / maxImgDim;
+
+      return {
+        scale: Math.min(1, parseFloat(fitScale.toFixed(2))),
+        rot: 0,
+        x: Math.round(cellCenterX),
+        y: Math.round(cellCenterY)
+      };
+    });
+  }
+
+  // Mode: "Edit places in squares"
   function openSingleSquareModal(idx) {
     editorModal.style.display = 'flex';
     modalTitle.textContent = `Edit Placement: Photo ${idx + 1} of ${rawImages.length}`;
@@ -473,7 +579,6 @@
     modalCanvas.width = maxDim + s;
     modalCanvas.height = maxDim + s;
 
-    // Load existing transforms
     const t = transforms[idx];
     modScale.value = t.scale;
     modRotate.value = t.rot;
@@ -496,7 +601,7 @@
     mCtx.restore();
   }
 
-  // Mode: "Edit places in one square" (All photos on one master swatch)
+  // Mode: "Edit places in one square"
   function buildMasterPhotoSelector() {
     photoBtnList.innerHTML = '';
     rawImages.forEach((_, idx) => {
@@ -545,7 +650,6 @@
     mCtx.fillStyle = innerColor.value;
     mCtx.fillRect(0, 0, modalCanvas.width, modalCanvas.height);
 
-    // Draw all photos in sequence onto the single master swatch
     rawImages.forEach((img, idx) => {
       const t = (idx === activeMasterIdx) ? {
         scale: parseFloat(modScale.value),
@@ -554,11 +658,31 @@
         y: parseInt(modY.value, 10)
       } : transforms[idx];
 
+      const centerX = modalCanvas.width / 2 + t.x;
+      const centerY = modalCanvas.height / 2 + t.y;
+
       mCtx.save();
-      mCtx.translate(modalCanvas.width / 2 + t.x, modalCanvas.height / 2 + t.y);
+      mCtx.translate(centerX, centerY);
       mCtx.rotate(t.rot * Math.PI / 180);
       mCtx.scale(t.scale, t.scale);
       mCtx.drawImage(img, -img.width / 2, -img.height / 2);
+      mCtx.restore();
+
+      // Draw Number Badge over photo center
+      mCtx.save();
+      mCtx.beginPath();
+      mCtx.arc(centerX, centerY, 16, 0, 2 * Math.PI);
+      mCtx.fillStyle = (idx === activeMasterIdx) ? '#007aff' : 'rgba(0,0,0,0.7)';
+      mCtx.fill();
+      mCtx.strokeStyle = '#ffffff';
+      mCtx.lineWidth = 2;
+      mCtx.stroke();
+
+      mCtx.fillStyle = '#ffffff';
+      mCtx.font = 'bold 14px -apple-system, sans-serif';
+      mCtx.textAlign = 'center';
+      mCtx.textBaseline = 'middle';
+      mCtx.fillText(idx + 1, centerX, centerY);
       mCtx.restore();
     });
   }
@@ -612,7 +736,6 @@
     let processed = [];
 
     if (mode === 'placeOneSquare') {
-      // Entire collection was composed into one single master square swatch
       let maxEdge = 0;
       rawImages.forEach(img => {
         const edge = Math.max(img.width, img.height);
@@ -639,12 +762,25 @@
 
       processed = [masterCanvas];
     } else {
+      // Find universal minimum edge for uniform square cropping
+      let minEdge = Infinity;
+      rawImages.forEach(img => {
+        const edge = Math.min(img.width, img.height);
+        if (edge < minEdge) minEdge = edge;
+      });
+
       processed = rawImages.map((img, idx) => {
         if (mode === 'square') {
-          const dim = Math.min(img.width, img.height);
+          // Crop to exact uniform square dimensions across ALL images
           const c = document.createElement('canvas');
-          c.width = dim; c.height = dim;
-          c.getContext('2d').drawImage(img, (img.width - dim) / 2, (img.height - dim) / 2, dim, dim, 0, 0, dim, dim);
+          c.width = minEdge; 
+          c.height = minEdge;
+          const srcDim = Math.min(img.width, img.height);
+          c.getContext('2d').drawImage(
+            img, 
+            (img.width - srcDim) / 2, (img.height - srcDim) / 2, srcDim, srcDim, 
+            0, 0, minEdge, minEdge
+          );
           return c;
         } 
         else if (mode === 'sameHeight') {
