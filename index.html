@@ -403,7 +403,6 @@
       <option value="uniform">Uniform Dimensions</option>
       <option value="sameHeight">Same height (Horizontal Strip)</option>
       <option value="sameWidth">Same width (Vertical Feed)</option>
-      <option value="placeSquares">Interactive Placement (Per photo)</option>
       <option value="placeSquaresFixedMask">Crop & Pan Inside Mask Frames</option>
       <option value="placeOneSquare">Freeform Canvas (Interactive all-in-one)</option>
       <option value="padSquareMax">Fit Whole Photo (Pad with background)</option>
@@ -794,10 +793,19 @@
     });
   }
 
+  function getMaxEdgeAcrossAllRawImages() {
+    let maxEdge = 0;
+    rawImages.forEach(img => {
+      const edge = Math.max(img.width, img.height);
+      if (edge > maxEdge) maxEdge = edge;
+    });
+    return maxEdge;
+  }
+
   generateBtn.addEventListener('click', () => {
     const mode = sizeMode.value;
 
-    if (mode === 'placeSquares' || mode === 'placeSquaresFixedMask') {
+    if (mode === 'placeSquaresFixedMask') {
       transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
       initialMasterTransforms = JSON.parse(JSON.stringify(transforms));
       currentSingleIdx = 0;
@@ -818,11 +826,7 @@
 
   function calculateInitialMasterGridTransforms() {
     const normImages = normalizeImagesToSameLongestEdge(rawImages);
-    let maxEdge = 0;
-    normImages.forEach(img => {
-      const edge = Math.max(img.width, img.height);
-      if (edge > maxEdge) maxEdge = edge;
-    });
+    const maxEdge = getMaxEdgeAcrossAllRawImages();
 
     const s = parseInt(innerSpacing.value, 10) || 0;
     const canvasSize = maxEdge + s;
@@ -927,10 +931,8 @@
     modalTitle.textContent = `Edit Placement: Photo ${idx + 1} of ${rawImages.length}`;
     modalDoneBtn.textContent = (idx < rawImages.length - 1) ? `Save & Next Photo (${idx + 1}/${rawImages.length})` : "Finish & Build Collage";
 
-    const normImages = normalizeImagesToSameLongestEdge(rawImages);
-    const img = normImages[idx];
+    const maxDim = getMaxEdgeAcrossAllRawImages();
     const s = parseInt(innerSpacing.value, 10) || 0;
-    const maxDim = Math.max(img.width, img.height);
     
     modalCanvas.width = maxDim + s;
     modalCanvas.height = maxDim + s;
@@ -951,7 +953,7 @@
     const rawImg = normImages[currentSingleIdx];
     const mask = maskMode.value;
     const r = parseInt(cornerRadius.value, 10) || 0;
-    const mode = sizeMode.value;
+    const maxEdge = getMaxEdgeAcrossAllRawImages();
 
     mCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
 
@@ -962,36 +964,30 @@
 
     mCtx.save();
 
-    if (mode === 'placeSquaresFixedMask' && mask !== 'none') {
-      mCtx.beginPath();
-      if (mask === 'square') {
-        const minDim = Math.min(rawImg.width, rawImg.height);
-        const x = (modalCanvas.width - minDim) / 2;
-        const y = (modalCanvas.height - minDim) / 2;
-        mCtx.rect(x, y, minDim, minDim);
-      } else if (mask === 'circle') {
-        const minDim = Math.min(rawImg.width, rawImg.height);
-        mCtx.arc(modalCanvas.width / 2, modalCanvas.height / 2, minDim / 2, 0, 2 * Math.PI);
-      } else if (mask === 'rounded') {
-        const x = (modalCanvas.width - rawImg.width) / 2;
-        const y = (modalCanvas.height - rawImg.height) / 2;
-        mCtx.roundRect(x, y, rawImg.width, rawImg.height, r);
-      } else if (mask === 'ellipse') {
-        mCtx.ellipse(modalCanvas.width / 2, modalCanvas.height / 2, rawImg.width / 2, rawImg.height / 2, 0, 0, 2 * Math.PI);
-      }
-      mCtx.clip();
-
-      mCtx.translate(modalCanvas.width / 2 + parseInt(modX.value, 10), modalCanvas.height / 2 + parseInt(modY.value, 10));
-      mCtx.rotate(parseInt(modRotate.value, 10) * Math.PI / 180);
-      mCtx.scale(parseFloat(modScale.value), parseFloat(modScale.value));
-      mCtx.drawImage(rawImg, -rawImg.width / 2, -rawImg.height / 2);
+    mCtx.beginPath();
+    if (mask === 'square') {
+      const x = (modalCanvas.width - maxEdge) / 2;
+      const y = (modalCanvas.height - maxEdge) / 2;
+      mCtx.rect(x, y, maxEdge, maxEdge);
+    } else if (mask === 'circle') {
+      mCtx.arc(modalCanvas.width / 2, modalCanvas.height / 2, maxEdge / 2, 0, 2 * Math.PI);
+    } else if (mask === 'rounded') {
+      const x = (modalCanvas.width - rawImg.width) / 2;
+      const y = (modalCanvas.height - rawImg.height) / 2;
+      mCtx.roundRect(x, y, rawImg.width, rawImg.height, r);
+    } else if (mask === 'ellipse') {
+      mCtx.ellipse(modalCanvas.width / 2, modalCanvas.height / 2, rawImg.width / 2, rawImg.height / 2, 0, 0, 2 * Math.PI);
     } else {
-      const img = applyMaskToAsset(rawImg, mask, r);
-      mCtx.translate(modalCanvas.width / 2 + parseInt(modX.value, 10), modalCanvas.height / 2 + parseInt(modY.value, 10));
-      mCtx.rotate(parseInt(modRotate.value, 10) * Math.PI / 180);
-      mCtx.scale(parseFloat(modScale.value), parseFloat(modScale.value));
-      mCtx.drawImage(img, -img.width / 2, -img.height / 2);
+      const x = (modalCanvas.width - rawImg.width) / 2;
+      const y = (modalCanvas.height - rawImg.height) / 2;
+      mCtx.rect(x, y, rawImg.width, rawImg.height);
     }
+    mCtx.clip();
+
+    mCtx.translate(modalCanvas.width / 2 + parseInt(modX.value, 10), modalCanvas.height / 2 + parseInt(modY.value, 10));
+    mCtx.rotate(parseInt(modRotate.value, 10) * Math.PI / 180);
+    mCtx.scale(parseFloat(modScale.value), parseFloat(modScale.value));
+    mCtx.drawImage(rawImg, -rawImg.width / 2, -rawImg.height / 2);
 
     mCtx.restore();
   }
@@ -1067,13 +1063,7 @@
     modalTitle.textContent = "Edit Placement on Master Canvas";
     modalDoneBtn.textContent = "Finish & Build Collage";
 
-    const normImages = normalizeImagesToSameLongestEdge(rawImages);
-    let maxEdge = 0;
-    normImages.forEach(img => {
-      const edge = Math.max(img.width, img.height);
-      if (edge > maxEdge) maxEdge = edge;
-    });
-
+    const maxEdge = getMaxEdgeAcrossAllRawImages();
     const s = parseInt(innerSpacing.value, 10) || 0;
     modalCanvas.width = maxEdge + s;
     modalCanvas.height = maxEdge + s;
@@ -1164,7 +1154,7 @@
   }
 
   function resetCurrentTransforms() {
-    if (sizeMode.value === 'placeSquares' || sizeMode.value === 'placeSquaresFixedMask') {
+    if (sizeMode.value === 'placeSquaresFixedMask') {
       transforms[currentSingleIdx] = JSON.parse(JSON.stringify(initialMasterTransforms[currentSingleIdx]));
       const t = transforms[currentSingleIdx];
       modScale.value = t.scale; modRotate.value = t.rot; modX.value = t.x; modY.value = t.y;
@@ -1179,7 +1169,7 @@
   }
 
   function triggerLiveUpdateFromSlidersOrGestures() {
-    if (sizeMode.value === 'placeSquares' || sizeMode.value === 'placeSquaresFixedMask') {
+    if (sizeMode.value === 'placeSquaresFixedMask') {
       transforms[currentSingleIdx] = {
         scale: parseFloat(modScale.value),
         rot: parseInt(modRotate.value, 10),
@@ -1272,7 +1262,7 @@
   });
 
   modalDoneBtn.addEventListener('click', () => {
-    if (sizeMode.value === 'placeSquares' || sizeMode.value === 'placeSquaresFixedMask') {
+    if (sizeMode.value === 'placeSquaresFixedMask') {
       currentSingleIdx++;
       if (currentSingleIdx < rawImages.length) {
         openSingleSquareModal(currentSingleIdx);
@@ -1298,11 +1288,7 @@
 
     if (mode === 'placeOneSquare') {
       const normImages = normalizeImagesToSameLongestEdge(rawImages);
-      let maxEdge = 0;
-      normImages.forEach(img => {
-        const edge = Math.max(img.width, img.height);
-        if (edge > maxEdge) maxEdge = edge;
-      });
+      const maxEdge = getMaxEdgeAcrossAllRawImages();
 
       const masterCanvas = document.createElement('canvas');
       masterCanvas.width = maxEdge + s;
@@ -1329,9 +1315,11 @@
       processed = [masterCanvas];
     } else {
       let activeImages = rawImages;
-      if (mode === 'placeSquares' || mode === 'placeSquaresFixedMask' || mode === 'padSquareMax' || mode === 'uniform') {
+      if (mode === 'placeSquaresFixedMask' || mode === 'padSquareMax' || mode === 'uniform') {
         activeImages = normalizeImagesToSameLongestEdge(rawImages);
       }
+
+      const maxEdge = getMaxEdgeAcrossAllRawImages();
 
       processed = activeImages.map((img, idx) => {
         let shapedImg = img;
@@ -1355,27 +1343,7 @@
 
         const maskedImg = applyMaskToAsset(shapedImg, mask, r);
 
-        if (mode === 'placeSquares') {
-          const maxEdge = Math.max(img.width, img.height);
-          const c = document.createElement('canvas');
-          c.width = maxEdge + s; c.height = maxEdge + s;
-          const cCtx = c.getContext('2d');
-          if (innerColorVal !== 'none') {
-            cCtx.fillStyle = innerColorVal;
-            cCtx.fillRect(0, 0, c.width, c.height);
-          }
-
-          const t = transforms[idx];
-          cCtx.save();
-          cCtx.translate(c.width / 2 + t.x, c.height / 2 + t.y);
-          cCtx.rotate(t.rot * Math.PI / 180);
-          cCtx.scale(t.scale, t.scale);
-          cCtx.drawImage(maskedImg, -maskedImg.width / 2, -maskedImg.height / 2);
-          cCtx.restore();
-          return c;
-        }
-        else if (mode === 'placeSquaresFixedMask') {
-          const maxEdge = Math.max(img.width, img.height);
+        if (mode === 'placeSquaresFixedMask') {
           const c = document.createElement('canvas');
           c.width = maxEdge + s; c.height = maxEdge + s;
           const cCtx = c.getContext('2d');
@@ -1386,25 +1354,25 @@
           }
 
           cCtx.save();
-          if (mask !== 'none') {
-            cCtx.beginPath();
-            if (mask === 'square') {
-              const minDim = Math.min(img.width, img.height);
-              const x = (c.width - minDim) / 2;
-              const y = (c.height - minDim) / 2;
-              cCtx.rect(x, y, minDim, minDim);
-            } else if (mask === 'circle') {
-              const minDim = Math.min(img.width, img.height);
-              cCtx.arc(c.width / 2, c.height / 2, minDim / 2, 0, 2 * Math.PI);
-            } else if (mask === 'rounded') {
-              const x = (c.width - img.width) / 2;
-              const y = (c.height - img.height) / 2;
-              cCtx.roundRect(x, y, img.width, img.height, r);
-            } else if (mask === 'ellipse') {
-              cCtx.ellipse(c.width / 2, c.height / 2, img.width / 2, img.height / 2, 0, 0, 2 * Math.PI);
-            }
-            cCtx.clip();
+          cCtx.beginPath();
+          if (mask === 'square') {
+            const x = (c.width - maxEdge) / 2;
+            const y = (c.height - maxEdge) / 2;
+            cCtx.rect(x, y, maxEdge, maxEdge);
+          } else if (mask === 'circle') {
+            cCtx.arc(c.width / 2, c.height / 2, maxEdge / 2, 0, 2 * Math.PI);
+          } else if (mask === 'rounded') {
+            const x = (c.width - img.width) / 2;
+            const y = (c.height - img.height) / 2;
+            cCtx.roundRect(x, y, img.width, img.height, r);
+          } else if (mask === 'ellipse') {
+            cCtx.ellipse(c.width / 2, c.height / 2, img.width / 2, img.height / 2, 0, 0, 2 * Math.PI);
+          } else {
+            const x = (c.width - img.width) / 2;
+            const y = (c.height - img.height) / 2;
+            cCtx.rect(x, y, img.width, img.height);
           }
+          cCtx.clip();
 
           const t = transforms[idx];
           cCtx.translate(c.width / 2 + t.x, c.height / 2 + t.y);
@@ -1416,7 +1384,6 @@
           return c;
         }
         else if (mode === 'padSquareMax') {
-          const maxEdge = Math.max(img.width, img.height);
           const c = document.createElement('canvas');
           c.width = maxEdge; c.height = maxEdge;
           const cCtx = c.getContext('2d');
