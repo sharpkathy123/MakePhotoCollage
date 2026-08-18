@@ -253,6 +253,15 @@
       background-size: 18px 18px;
     }
 
+    .version-stamp {
+      font-size: 0.72rem;
+      color: #8e8e93;
+      text-align: center;
+      margin-top: 20px;
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+
     /* Modal Styling */
     .modal {
       display: none;
@@ -453,6 +462,10 @@
     <canvas id="collageCanvas"></canvas>
     <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
   </div>
+
+  <div class="version-stamp">
+    Updated: <span>2026-08-18 15:07</span>
+  </div>
 </div>
 
 <!-- Placement Modal -->
@@ -503,10 +516,10 @@
 </div>
 
 <script>
-  // PWA Service Worker Registration
+  // PWA Service Worker Registration with Cache-Busting Parameter
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608181507').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -625,8 +638,7 @@
     updateUIGraying();
   });
 
-  // Dynamic Smart Grid Column Calculator
-  // Evaluates from maximum columns down to 1 to favor wider/higher-column orientations
+  // Dynamic Smart Grid Column Calculator (Evaluates 5 down to 1)
   function applySmartGridColumns() {
     const n = rawImages.length;
     if (!n) return;
