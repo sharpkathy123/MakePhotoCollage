@@ -2,8 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Advanced Photo Collage Builder</title>
+  
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#007aff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Collage">
+  <link rel="apple-touch-icon" href="https://img.icons8.com/color/512/grid-2.png">
+
   <style>
     :root {
       --bg-color: #f2f2f7;
@@ -477,6 +485,15 @@
 </div>
 
 <script>
+  // PWA Service Worker Registration
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(err => {
+        console.log('SW registration failed:', err);
+      });
+    });
+  }
+
   // DOM Elements
   const imgInput = document.getElementById('imgInput');
   const innerSpacing = document.getElementById('innerSpacing');
@@ -582,7 +599,6 @@
     updateUIGraying();
   });
 
-  // Updated Smart Grid Logic
   function applySmartGridColumns() {
     const count = rawImages.length;
     if (!count) return;
@@ -1145,7 +1161,6 @@
       });
 
       processed = activeImages.map((img, idx) => {
-        // Step 1: Apply Shape / Sizing Logic
         let shapedImg = img;
 
         if (mode === 'square') {
@@ -1177,7 +1192,6 @@
           shapedImg = c;
         }
 
-        // Step 2: Apply Mask after shaping so Ellipse / Rounded Rec remain clean
         const maskedImg = applyMaskToAsset(shapedImg, mask, r);
 
         if (mode === 'placeSquares') {
@@ -1216,7 +1230,7 @@
       });
     }
 
-    // Step 3: Precise Layout Stitching
+    // Step 3: Layout Stitching
     const layout = (mode === 'placeOneSquare') ? 'grid' : layoutType.value;
     let collageCanvas = document.createElement('canvas');
     let cCtx = collageCanvas.getContext('2d');
@@ -1290,7 +1304,7 @@
       });
     }
 
-    // Step 4: Frame Border Assembly (Hollow Outer Frame)
+    // Step 4: Frame Border Assembly
     if (b > 0 && outerColorVal !== 'none') {
       canvas.width = collageCanvas.width + (b * 2);
       canvas.height = collageCanvas.height + (b * 2);
