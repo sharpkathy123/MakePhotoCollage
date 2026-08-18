@@ -55,6 +55,12 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
+      transition: opacity 0.2s ease;
+    }
+
+    .control.disabled {
+      opacity: 0.4;
+      pointer-events: none;
     }
 
     label {
@@ -92,6 +98,18 @@
       width: 100%;
       cursor: pointer;
       margin-top: 14px;
+    }
+
+    .btn-secondary {
+      background-color: #e5e5ea;
+      color: #1c1c1e;
+      border: 1px solid var(--border-color);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
     }
 
     .btn:disabled {
@@ -181,7 +199,7 @@
       background-color: #e5e5ea;
     }
 
-    /* Interactive Placement Modal */
+    /* Modal Styling */
     .modal {
       display: none;
       position: fixed;
@@ -316,14 +334,14 @@
     </select>
   </div>
 
-  <div class="control" id="radiusGroup" style="display: none;">
+  <div class="control disabled" id="radiusGroup">
     <label for="cornerRadius">Corner Radius (px): <span id="radiusVal">30</span></label>
     <input type="range" id="cornerRadius" min="0" max="150" value="30">
   </div>
 
-  <div class="section-title">5. Final Layout & Assembly</div>
-  <div class="row">
-    <div class="control">
+  <div class="section-title" id="arrangementTitle">5. Final Layout & Assembly</div>
+  <div class="row" id="arrangementRow">
+    <div class="control" id="layoutTypeControl">
       <label for="layoutType">Arrangement</label>
       <select id="layoutType">
         <option value="grid">Grid</option>
@@ -385,6 +403,7 @@
       </div>
     </div>
 
+    <button class="btn-secondary" id="modalResetBtn" type="button" onclick="resetCurrentTransforms()">Reset Placement</button>
     <button class="btn" id="modalDoneBtn">Done / Next</button>
   </div>
 </div>
@@ -405,8 +424,11 @@
   const radiusGroup = document.getElementById('radiusGroup');
   const radiusVal = document.getElementById('radiusVal');
   const layoutType = document.getElementById('layoutType');
+  const layoutTypeControl = document.getElementById('layoutTypeControl');
   const gridCols = document.getElementById('gridCols');
   const gridColsGroup = document.getElementById('gridColsGroup');
+  const arrangementTitle = document.getElementById('arrangementTitle');
+  const arrangementRow = document.getElementById('arrangementRow');
   const generateBtn = document.getElementById('generateBtn');
   const canvas = document.getElementById('collageCanvas');
   const ctx = canvas.getContext('2d');
@@ -427,6 +449,8 @@
   let activeColorTarget = 'inner';
   let rawImages = [];
   let transforms = [];
+  let initialMasterTransforms = []; // Store clean state for reset
+  let lastSliderState = { scale: 1, rot: 0, x: 0, y: 0 };
   let currentSingleIdx = 0;
   let selectedMasterIndices = new Set([0]);
 
@@ -441,18 +465,36 @@
     }
   }
 
-  // Prevent color input click from toggling target button unexpectedly
   innerColor.addEventListener('click', (e) => e.stopPropagation());
   outerColor.addEventListener('click', (e) => e.stopPropagation());
 
-  maskMode.addEventListener('change', () => {
-    radiusGroup.style.display = (maskMode.value === 'rounded') ? 'flex' : 'none';
-  });
+  // Dynamic UI Graying Logic
+  function updateUIGraying() {
+    // Gray out Corner Radius when Mask is not Rounded
+    if (maskMode.value === 'rounded') {
+      radiusGroup.classList.remove('disabled');
+    } else {
+      radiusGroup.classList.add('disabled');
+    }
+
+    // Gray out Layout/Arrangement when "Edit places in one square" is chosen
+    if (sizeMode.value === 'placeOneSquare') {
+      layoutTypeControl.classList.add('disabled');
+      gridColsGroup.classList.add('disabled');
+    } else {
+      layoutTypeControl.classList.remove('disabled');
+      if (layoutType.value === 'grid') {
+        gridColsGroup.classList.remove('disabled');
+      } else {
+        gridColsGroup.classList.add('disabled');
+      }
+    }
+  }
+
+  [maskMode, sizeMode, layoutType].forEach(el => el.addEventListener('change', updateUIGraying));
+
   cornerRadius.addEventListener('input', () => {
     radiusVal.textContent = cornerRadius.value;
-  });
-  layoutType.addEventListener('change', () => {
-    gridColsGroup.style.display = (layoutType.value === 'grid') ? 'flex' : 'none';
   });
 
   // Load Images
@@ -491,7 +533,6 @@
       return offCanvas;
     });
 
-    // Smart Column Default Calculation (Prefer zero-gap grids)
     const count = rawImages.length;
     if (count === 1) gridCols.value = "1";
     else if (count <= 4) gridCols.value = "2";
@@ -500,9 +541,9 @@
 
     extractSortedPalette(rawImages);
     generateBtn.disabled = false;
+    updateUIGraying();
   });
 
-  // Color Utility: RGB to HSL & Deduplication
   function rgbToHsl(r, g, b) {
     r /= 255; g /= 255; b /= 255;
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -540,17 +581,15 @@
       }
     });
 
-    // Filter duplicates using perceptual color distance
     const uniqueColors = [];
     rawColors.forEach(item => {
       const exists = uniqueColors.some(u => {
         const dr = u.r - item.r, dg = u.g - item.g, db = u.b - item.b;
-        return (dr*dr + dg*dg + db*db) < 1200; // Similarity threshold
+        return (dr*dr + dg*dg + db*db) < 1200;
       });
       if (!exists) uniqueColors.push(item);
     });
 
-    // Sort by Hue, then Lightness
     uniqueColors.sort((a, b) => a.h - b.h || a.l - b.l);
 
     uniqueColors.forEach(col => {
@@ -569,7 +608,6 @@
     });
   }
 
-  // Pre-normalize Images for Options 4, 5, 6 so they share identical longest edges
   function normalizeImagesToSameLongestEdge(images) {
     let maxEdgeAcrossAll = 0;
     images.forEach(img => {
@@ -589,17 +627,18 @@
     });
   }
 
-  // Generate Action
   generateBtn.addEventListener('click', () => {
     const mode = sizeMode.value;
 
     if (mode === 'placeSquares') {
       transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
+      initialMasterTransforms = JSON.parse(JSON.stringify(transforms));
       currentSingleIdx = 0;
       photoSelectorGroup.style.display = 'none';
       openSingleSquareModal(0);
     } else if (mode === 'placeOneSquare') {
       calculateInitialMasterGridTransforms();
+      initialMasterTransforms = JSON.parse(JSON.stringify(transforms));
       selectedMasterIndices = new Set([0]);
       photoSelectorGroup.style.display = 'block';
       buildMasterPhotoSelector();
@@ -645,7 +684,6 @@
     });
   }
 
-  // Single Square Modal
   function openSingleSquareModal(idx) {
     editorModal.style.display = 'flex';
     modalTitle.textContent = `Edit Placement: Photo ${idx + 1} of ${rawImages.length}`;
@@ -665,6 +703,8 @@
     modX.value = t.x;
     modY.value = t.y;
 
+    lastSliderState = { scale: t.scale, rot: t.rot, x: t.x, y: t.y };
+
     renderSingleSquareCanvas();
   }
 
@@ -682,7 +722,6 @@
     mCtx.restore();
   }
 
-  // Master Square Modal (Batch Selection Supported)
   function buildMasterPhotoSelector() {
     photoBtnList.innerHTML = '';
     rawImages.forEach((_, idx) => {
@@ -746,6 +785,13 @@
     modRotate.value = t.rot;
     modX.value = t.x;
     modY.value = t.y;
+
+    lastSliderState = {
+      scale: parseFloat(modScale.value),
+      rot: parseInt(modRotate.value, 10),
+      x: parseInt(modX.value, 10),
+      y: parseInt(modY.value, 10)
+    };
   }
 
   function renderMasterSquareCanvas() {
@@ -766,7 +812,6 @@
       mCtx.drawImage(img, -img.width / 2, -img.height / 2);
       mCtx.restore();
 
-      // Number Badge
       mCtx.save();
       mCtx.beginPath();
       mCtx.arc(centerX, centerY, 16, 0, 2 * Math.PI);
@@ -785,18 +830,43 @@
     });
   }
 
+  // Relative Delta Group Scaling/Translation (Prevents Pile-Up)
   function applyBatchTransforms() {
+    const newScale = parseFloat(modScale.value);
+    const newRot = parseInt(modRotate.value, 10);
+    const newX = parseInt(modX.value, 10);
+    const newY = parseInt(modY.value, 10);
+
+    const deltaScale = lastSliderState.scale ? newScale / lastSliderState.scale : 1;
+    const deltaRot = newRot - lastSliderState.rot;
+    const deltaX = newX - lastSliderState.x;
+    const deltaY = newY - lastSliderState.y;
+
     selectedMasterIndices.forEach(idx => {
-      transforms[idx] = {
-        scale: parseFloat(modScale.value),
-        rot: parseInt(modRotate.value, 10),
-        x: parseInt(modX.value, 10),
-        y: parseInt(modY.value, 10)
-      };
+      transforms[idx].scale *= deltaScale;
+      transforms[idx].rot += deltaRot;
+      transforms[idx].x += deltaX;
+      transforms[idx].y += deltaY;
     });
+
+    lastSliderState = { scale: newScale, rot: newRot, x: newX, y: newY };
   }
 
-  // Live Slider Handlers
+  function resetCurrentTransforms() {
+    if (sizeMode.value === 'placeSquares') {
+      transforms[currentSingleIdx] = JSON.parse(JSON.stringify(initialMasterTransforms[currentSingleIdx]));
+      const t = transforms[currentSingleIdx];
+      modScale.value = t.scale; modRotate.value = t.rot; modX.value = t.x; modY.value = t.y;
+      renderSingleSquareCanvas();
+    } else {
+      selectedMasterIndices.forEach(idx => {
+        transforms[idx] = JSON.parse(JSON.stringify(initialMasterTransforms[idx]));
+      });
+      loadControlsForSelectedPhotos();
+      renderMasterSquareCanvas();
+    }
+  }
+
   [modScale, modRotate, modX, modY].forEach(el => {
     el.addEventListener('input', () => {
       if (sizeMode.value === 'placeSquares') {
@@ -937,7 +1007,7 @@
       });
     }
 
-    // Step 2: Apply Mask
+    // Step 2: Apply Universal Mask Across All Tile Sub-Canvases
     processed = processed.map(img => {
       if (mask === 'none') return img;
 
@@ -963,8 +1033,8 @@
       return c;
     });
 
-    // Step 3: Grid Assembly (Strict Single Inner Spacing Around Edge)
-    const layout = layoutType.value;
+    // Step 3: Precise Layout Stitching
+    const layout = (mode === 'placeOneSquare') ? 'grid' : layoutType.value;
     let collageCanvas = document.createElement('canvas');
     let cCtx = collageCanvas.getContext('2d');
 
@@ -1006,8 +1076,8 @@
         curY += img.height + s;
       });
     }
-    else { // Grid Mode
-      const cols = parseInt(gridCols.value, 10);
+    else { // Grid Layout
+      const cols = (mode === 'placeOneSquare') ? 1 : parseInt(gridCols.value, 10);
       const rows = Math.ceil(processed.length / cols);
 
       let maxCellW = 0, maxCellH = 0;
@@ -1031,7 +1101,7 @@
       });
     }
 
-    // Step 4: Outer Border Matte (Directly wrapping single inner spacing)
+    // Step 4: Outer Border Matte Application
     const finalW = collageCanvas.width + (b * 2);
     const finalH = collageCanvas.height + (b * 2);
 
@@ -1042,6 +1112,9 @@
     ctx.fillRect(0, 0, finalW, finalH);
     ctx.drawImage(collageCanvas, b, b);
   }
+
+  // Initialize UI Graying State on Load
+  updateUIGraying();
 </script>
 
 </body>
