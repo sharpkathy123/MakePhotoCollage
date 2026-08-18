@@ -326,7 +326,7 @@
       <input type="number" id="innerSpacing" value="16" min="0">
     </div>
     <div class="control">
-      <label for="outerSpacing">Outer Border Spacing (px)</label>
+      <label for="outerSpacing">Outer Border Width (px)</label>
       <input type="number" id="outerSpacing" value="24" min="0">
     </div>
   </div>
@@ -535,7 +535,6 @@
   innerColor.addEventListener('click', (e) => e.stopPropagation());
   outerColor.addEventListener('click', (e) => e.stopPropagation());
 
-  // Transparent Selection Fix
   function setTransparentColor() {
     if (activeColorTarget === 'inner') {
       innerColorVal = 'none';
@@ -1218,21 +1217,25 @@
       });
     }
 
-    // Step 4: Outer Border Matte Application
-    const finalW = collageCanvas.width + (b * 2);
-    const finalH = collageCanvas.height + (b * 2);
+    // Step 4: Frame Border Assembly (Hollow Outer Frame)
+    if (b > 0 && outerColorVal !== 'none') {
+      canvas.width = collageCanvas.width + (b * 2);
+      canvas.height = collageCanvas.height + (b * 2);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    canvas.width = finalW;
-    canvas.height = finalH;
+      // Draw collage centered
+      ctx.drawImage(collageCanvas, b, b);
 
-    ctx.clearRect(0, 0, finalW, finalH);
-
-    if (outerColorVal !== 'none') {
-      ctx.fillStyle = outerColorVal;
-      ctx.fillRect(0, 0, finalW, finalH);
+      // Draw hollow outer frame stroke
+      ctx.strokeStyle = outerColorVal;
+      ctx.lineWidth = b;
+      ctx.strokeRect(b / 2, b / 2, canvas.width - b, canvas.height - b);
+    } else {
+      canvas.width = collageCanvas.width;
+      canvas.height = collageCanvas.height;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(collageCanvas, 0, 0);
     }
-
-    ctx.drawImage(collageCanvas, b, b);
 
     saveBtn.disabled = false;
   }
@@ -1243,7 +1246,6 @@
       const fileName = `collage-${Date.now()}.png`;
       const file = new File([blob], fileName, { type: 'image/png' });
 
-      // Use Web Share API if supported (Native iOS Share Sheet for direct "Save Image" / "Save to Files")
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({
@@ -1252,7 +1254,6 @@
             text: 'Here is your generated collage.'
           });
         } catch (err) {
-          // Fallback if user cancels or share fails
           if (err.name !== 'AbortError') fallbackDownload(blob, fileName);
         }
       } else {
