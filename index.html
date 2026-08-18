@@ -43,38 +43,6 @@
       box-sizing: border-box;
     }
 
-    /* PWA Install Banner */
-    .pwa-banner {
-      max-width: 680px;
-      width: 100%;
-      background: #eef6ff;
-      border: 1px solid #b3d7ff;
-      border-radius: 12px;
-      padding: 12px 16px;
-      margin-bottom: 16px;
-      box-sizing: border-box;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 0.85rem;
-      color: #004085;
-      gap: 10px;
-    }
-
-    .pwa-banner-text {
-      line-height: 1.35;
-    }
-
-    .pwa-banner-close {
-      background: none;
-      border: none;
-      font-size: 1.2rem;
-      font-weight: bold;
-      color: #004085;
-      cursor: pointer;
-      padding: 0 4px;
-    }
-
     h1 {
       font-size: 1.4rem;
       margin-top: 0;
@@ -319,7 +287,7 @@
       max-width: 100%;
       max-height: 320px;
       border: 1px solid var(--border-color);
-      touch-action: none; /* Enables smooth touch drag/pinch gestures without browser scrolling */
+      touch-action: none;
       cursor: grab;
     }
 
@@ -381,14 +349,6 @@
 </head>
 <body>
 
-<!-- PWA Installation Banner -->
-<div class="pwa-banner" id="pwaBanner">
-  <div class="pwa-banner-text">
-    📲 <strong>Install for Offline Use:</strong> Tap Share <span style="font-size:1.1em;">⎋</span> &rarr; <em>"Add to Home Screen"</em> to run this app anywhere in Airplane Mode.
-  </div>
-  <button class="pwa-banner-close" onclick="document.getElementById('pwaBanner').style.display='none'">&times;</button>
-</div>
-
 <div class="card">
   <h1>Collage Generator</h1>
 
@@ -444,7 +404,7 @@
       <option value="sameHeight">Same height (Horizontal Strip)</option>
       <option value="sameWidth">Same width (Vertical Feed)</option>
       <option value="placeSquares">Edit places in squares (Interactive per photo)</option>
-      <option value="placeSquaresFixedMask">Crop & Pan Inside Frames (Fixed mask)</option>
+      <option value="placeSquaresFixedMask">Crop & Pan Inside Mask Frames</option>
       <option value="placeOneSquare">Freeform Canvas (Interactive all-in-one)</option>
       <option value="padSquareMax">Fit Whole Photo (No Crop - Pad to square)</option>
     </select>
