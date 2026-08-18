@@ -449,7 +449,7 @@
   let activeColorTarget = 'inner';
   let rawImages = [];
   let transforms = [];
-  let initialMasterTransforms = []; // Store clean state for reset
+  let initialMasterTransforms = [];
   let lastSliderState = { scale: 1, rot: 0, x: 0, y: 0 };
   let currentSingleIdx = 0;
   let selectedMasterIndices = new Set([0]);
@@ -477,12 +477,13 @@
       radiusGroup.classList.add('disabled');
     }
 
-    // Gray out Layout/Arrangement when "Edit places in one square" is chosen
+    // Arrangement is ONLY disabled for "Edit places in one square"
     if (sizeMode.value === 'placeOneSquare') {
       layoutTypeControl.classList.add('disabled');
       gridColsGroup.classList.add('disabled');
     } else {
       layoutTypeControl.classList.remove('disabled');
+      // Columns selector is grayed out only when in Horizontal or Vertical mode
       if (layoutType.value === 'grid') {
         gridColsGroup.classList.remove('disabled');
       } else {
@@ -830,7 +831,6 @@
     });
   }
 
-  // Relative Delta Group Scaling/Translation (Prevents Pile-Up)
   function applyBatchTransforms() {
     const newScale = parseFloat(modScale.value);
     const newRot = parseInt(modRotate.value, 10);
@@ -1113,7 +1113,6 @@
     ctx.drawImage(collageCanvas, b, b);
   }
 
-  // Initialize UI Graying State on Load
   updateUIGraying();
 </script>
 
