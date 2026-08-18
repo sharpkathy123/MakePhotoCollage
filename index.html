@@ -396,17 +396,17 @@
     </div>
   </div>
 
-  <div class="section-title">3. Photo Shape & Placement</div>
+  <div class="section-title">3. Placement & Sizing</div>
   <div class="control">
-    <label for="sizeMode">Select Shape & Placement Option</label>
+    <label for="sizeMode">Select Placement Option</label>
     <select id="sizeMode">
-      <option value="square">Crop to Equal Squares</option>
+      <option value="uniform">Uniform Dimensions</option>
       <option value="sameHeight">Same height (Horizontal Strip)</option>
       <option value="sameWidth">Same width (Vertical Feed)</option>
-      <option value="placeSquares">Edit places in squares (Interactive per photo)</option>
+      <option value="placeSquares">Interactive Placement (Per photo)</option>
       <option value="placeSquaresFixedMask">Crop & Pan Inside Mask Frames</option>
       <option value="placeOneSquare">Freeform Canvas (Interactive all-in-one)</option>
-      <option value="padSquareMax">Fit Whole Photo (No Crop - Pad to square)</option>
+      <option value="padSquareMax">Fit Whole Photo (Pad with background)</option>
     </select>
   </div>
 
@@ -414,9 +414,11 @@
   <div class="control">
     <label for="maskMode">Select Mask Option</label>
     <select id="maskMode">
-      <option value="none">None</option>
+      <option value="none">None (Original Aspect Ratio)</option>
+      <option value="square">Square (1:1 Crop)</option>
+      <option value="circle">Circle (Perfect Circle Crop)</option>
+      <option value="ellipse">Ellipse / Oval</option>
       <option value="rounded">Rounded Rectangle</option>
-      <option value="ellipse">Ellipse / Circle</option>
     </select>
   </div>
 
@@ -850,26 +852,74 @@
     });
   }
 
+  // Enhanced Mask Engine: Square, Circle, Ellipse, Rounded
   function applyMaskToAsset(imgAsset, maskType, radius) {
     if (maskType === 'none') return imgAsset;
 
     const c = document.createElement('canvas');
-    c.width = imgAsset.width; 
-    c.height = imgAsset.height;
     const cCtx = c.getContext('2d');
 
-    cCtx.save();
-    cCtx.beginPath();
-    if (maskType === 'rounded') {
-      cCtx.roundRect(0, 0, c.width, c.height, radius);
-    } else if (maskType === 'ellipse') {
-      cCtx.ellipse(c.width / 2, c.height / 2, c.width / 2, c.height / 2, 0, 0, 2 * Math.PI);
+    // Square 1:1 Center Crop
+    if (maskType === 'square') {
+      const minDim = Math.min(imgAsset.width, imgAsset.height);
+      c.width = minDim;
+      c.height = minDim;
+      const srcX = (imgAsset.width - minDim) / 2;
+      const srcY = (imgAsset.height - minDim) / 2;
+      cCtx.drawImage(imgAsset, srcX, srcY, minDim, minDim, 0, 0, minDim, minDim);
+      return c;
     }
-    cCtx.clip();
-    cCtx.drawImage(imgAsset, 0, 0);
-    cCtx.restore();
 
-    return c;
+    // Perfect Circle (Center cropped onto min dimension)
+    if (maskType === 'circle') {
+      const minDim = Math.min(imgAsset.width, imgAsset.height);
+      c.width = minDim;
+      c.height = minDim;
+
+      cCtx.save();
+      cCtx.beginPath();
+      cCtx.arc(minDim / 2, minDim / 2, minDim / 2, 0, 2 * Math.PI);
+      cCtx.clip();
+
+      const srcX = (imgAsset.width - minDim) / 2;
+      const srcY = (imgAsset.height - minDim) / 2;
+      cCtx.drawImage(imgAsset, srcX, srcY, minDim, minDim, 0, 0, minDim, minDim);
+      cCtx.restore();
+
+      return c;
+    }
+
+    // Ellipse / Oval
+    if (maskType === 'ellipse') {
+      c.width = imgAsset.width;
+      c.height = imgAsset.height;
+
+      cCtx.save();
+      cCtx.beginPath();
+      cCtx.ellipse(c.width / 2, c.height / 2, c.width / 2, c.height / 2, 0, 0, 2 * Math.PI);
+      cCtx.clip();
+      cCtx.drawImage(imgAsset, 0, 0);
+      cCtx.restore();
+
+      return c;
+    }
+
+    // Rounded Rectangle
+    if (maskType === 'rounded') {
+      c.width = imgAsset.width;
+      c.height = imgAsset.height;
+
+      cCtx.save();
+      cCtx.beginPath();
+      cCtx.roundRect(0, 0, c.width, c.height, radius);
+      cCtx.clip();
+      cCtx.drawImage(imgAsset, 0, 0);
+      cCtx.restore();
+
+      return c;
+    }
+
+    return imgAsset;
   }
 
   function openSingleSquareModal(idx) {
@@ -914,7 +964,15 @@
 
     if (mode === 'placeSquaresFixedMask' && mask !== 'none') {
       mCtx.beginPath();
-      if (mask === 'rounded') {
+      if (mask === 'square') {
+        const minDim = Math.min(rawImg.width, rawImg.height);
+        const x = (modalCanvas.width - minDim) / 2;
+        const y = (modalCanvas.height - minDim) / 2;
+        mCtx.rect(x, y, minDim, minDim);
+      } else if (mask === 'circle') {
+        const minDim = Math.min(rawImg.width, rawImg.height);
+        mCtx.arc(modalCanvas.width / 2, modalCanvas.height / 2, minDim / 2, 0, 2 * Math.PI);
+      } else if (mask === 'rounded') {
         const x = (modalCanvas.width - rawImg.width) / 2;
         const y = (modalCanvas.height - rawImg.height) / 2;
         mCtx.roundRect(x, y, rawImg.width, rawImg.height, r);
@@ -1139,7 +1197,7 @@
     el.addEventListener('input', triggerLiveUpdateFromSlidersOrGestures);
   });
 
-  // Native Touch Drag & Pinch Gestures on Modal Canvas
+  // Touch Drag & Pinch Gestures
   modalCanvas.addEventListener('touchstart', (e) => {
     if (e.touches.length === 1) {
       isDragging = true;
@@ -1185,7 +1243,7 @@
     initialPinchDist = null;
   });
 
-  // Mouse Drag Support for Desktop
+  // Mouse Drag Support
   let isMouseDown = false;
   let mouseStartX = 0, mouseStartY = 0;
 
@@ -1271,32 +1329,14 @@
       processed = [masterCanvas];
     } else {
       let activeImages = rawImages;
-      if (mode === 'placeSquares' || mode === 'placeSquaresFixedMask' || mode === 'padSquareMax') {
+      if (mode === 'placeSquares' || mode === 'placeSquaresFixedMask' || mode === 'padSquareMax' || mode === 'uniform') {
         activeImages = normalizeImagesToSameLongestEdge(rawImages);
       }
-
-      let minEdge = Infinity;
-      activeImages.forEach(img => {
-        const edge = Math.min(img.width, img.height);
-        if (edge < minEdge) minEdge = edge;
-      });
 
       processed = activeImages.map((img, idx) => {
         let shapedImg = img;
 
-        if (mode === 'square') {
-          const c = document.createElement('canvas');
-          c.width = minEdge; 
-          c.height = minEdge;
-          const srcDim = Math.min(img.width, img.height);
-          c.getContext('2d').drawImage(
-            img, 
-            (img.width - srcDim) / 2, (img.height - srcDim) / 2, srcDim, srcDim, 
-            0, 0, minEdge, minEdge
-          );
-          shapedImg = c;
-        } 
-        else if (mode === 'sameHeight') {
+        if (mode === 'sameHeight') {
           const targetH = 400;
           const targetW = Math.round(targetH * (img.width / img.height));
           const c = document.createElement('canvas');
@@ -1348,7 +1388,15 @@
           cCtx.save();
           if (mask !== 'none') {
             cCtx.beginPath();
-            if (mask === 'rounded') {
+            if (mask === 'square') {
+              const minDim = Math.min(img.width, img.height);
+              const x = (c.width - minDim) / 2;
+              const y = (c.height - minDim) / 2;
+              cCtx.rect(x, y, minDim, minDim);
+            } else if (mask === 'circle') {
+              const minDim = Math.min(img.width, img.height);
+              cCtx.arc(c.width / 2, c.height / 2, minDim / 2, 0, 2 * Math.PI);
+            } else if (mask === 'rounded') {
               const x = (c.width - img.width) / 2;
               const y = (c.height - img.height) / 2;
               cCtx.roundRect(x, y, img.width, img.height, r);
