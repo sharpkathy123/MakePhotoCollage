@@ -183,6 +183,7 @@
     .palette-swatches {
       display: inline-flex;
       gap: 8px;
+      align-items: center;
     }
 
     .swatch {
@@ -196,7 +197,24 @@
       transition: transform 0.1s ease;
     }
 
-    .swatch:hover {
+    .swatch-none {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      border: 2px solid #ff3b30;
+      background: repeating-linear-gradient(45deg, #ccc, #ccc 4px, #fff 4px, #fff 8px);
+      box-shadow: 0 0 0 1px var(--border-color);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+      font-weight: bold;
+      color: #ff3b30;
+    }
+
+    .swatch:hover, .swatch-none:hover {
       transform: scale(1.15);
     }
 
@@ -210,7 +228,9 @@
       height: auto;
       border-radius: 8px;
       border: 1px solid var(--border-color);
-      background-color: #e5e5ea;
+      background-image: repeating-linear-gradient(45deg, #e5e5ea 25%, transparent 25%, transparent 75%, #e5e5ea 75%, #e5e5ea), repeating-linear-gradient(45deg, #e5e5ea 25%, #ffffff 25%, #ffffff 75%, #e5e5ea 75%, #e5e5ea);
+      background-position: 0 0, 9px 9px;
+      background-size: 18px 18px;
     }
 
     /* Modal Styling */
@@ -289,11 +309,13 @@
 <div class="card">
   <h1>Collage Generator</h1>
 
+  <!-- 1. Input Photos -->
   <div class="control">
     <label for="imgInput">1. Select Photos</label>
     <input type="file" id="imgInput" accept="image/*" multiple>
   </div>
 
+  <!-- 2. Spacing & Colors -->
   <div class="section-title">2. Spacing & Colors</div>
   <div class="row">
     <div class="control">
@@ -319,12 +341,15 @@
       </button>
     </div>
 
-    <label>Sampled Image Palette (Sorted & Deduplicated):</label>
+    <label>Sampled Image Palette (Click "None" for Transparent):</label>
     <div class="palette-container">
-      <div class="palette-swatches" id="paletteArea"></div>
+      <div class="palette-swatches" id="paletteArea">
+        <div class="swatch-none" title="Transparent" onclick="setTransparentColor()">None</div>
+      </div>
     </div>
   </div>
 
+  <!-- 3. Photo Shape & Placement -->
   <div class="section-title">3. Photo Shape & Placement</div>
   <div class="control">
     <label for="sizeMode">Select Shape & Placement Option</label>
@@ -338,6 +363,7 @@
     </select>
   </div>
 
+  <!-- 4. Photo Masking -->
   <div class="section-title">4. Photo Masking</div>
   <div class="control">
     <label for="maskMode">Select Mask Option</label>
@@ -353,6 +379,7 @@
     <input type="range" id="cornerRadius" min="0" max="150" value="30">
   </div>
 
+  <!-- 5. Final Arrangement -->
   <div class="section-title" id="arrangementTitle">5. Final Layout & Assembly</div>
   <div class="row" id="arrangementRow">
     <div class="control" id="layoutTypeControl">
@@ -383,6 +410,7 @@
   </div>
 </div>
 
+<!-- Interactive Placement Modal -->
 <div class="modal" id="editorModal">
   <div class="modal-content">
     <h3 id="modalTitle">Adjust Photo Placement</h3>
@@ -442,8 +470,6 @@
   const layoutTypeControl = document.getElementById('layoutTypeControl');
   const gridCols = document.getElementById('gridCols');
   const gridColsGroup = document.getElementById('gridColsGroup');
-  const arrangementTitle = document.getElementById('arrangementTitle');
-  const arrangementRow = document.getElementById('arrangementRow');
   const generateBtn = document.getElementById('generateBtn');
   const saveBtn = document.getElementById('saveBtn');
   const canvas = document.getElementById('collageCanvas');
@@ -463,12 +489,23 @@
   const modalDoneBtn = document.getElementById('modalDoneBtn');
 
   let activeColorTarget = 'inner';
+  let innerColorVal = '#ffffff'; // 'none' for transparent
+  let outerColorVal = '#1c1c1e'; // 'none' for transparent
   let rawImages = [];
   let transforms = [];
   let initialMasterTransforms = [];
   let lastSliderState = { scale: 1, rot: 0, x: 0, y: 0 };
   let currentSingleIdx = 0;
   let selectedMasterIndices = new Set([0]);
+
+  // Handle Number Input Fallback to Zero
+  [innerSpacing, outerSpacing].forEach(input => {
+    input.addEventListener('input', () => {
+      if (input.value === '' || isNaN(parseInt(input.value, 10))) {
+        input.value = 0;
+      }
+    });
+  });
 
   function setActiveColorTarget(target) {
     activeColorTarget = target;
@@ -481,35 +518,59 @@
     }
   }
 
+  innerColor.addEventListener('input', (e) => {
+    if (activeColorTarget === 'inner') innerColorVal = e.target.value;
+  });
+  outerColor.addEventListener('input', (e) => {
+    if (activeColorTarget === 'outer') outerColorVal = e.target.value;
+  });
+
   innerColor.addEventListener('click', (e) => e.stopPropagation());
   outerColor.addEventListener('click', (e) => e.stopPropagation());
 
-  // Smart Auto-Arrangement Defaults
+  function setTransparentColor() {
+    if (activeColorTarget === 'inner') {
+      innerColorVal = 'none';
+    } else {
+      outerColorVal = 'none';
+    }
+  }
+
+  // Dynamic UI & Smart Auto-Arrangement
   sizeMode.addEventListener('change', () => {
     if (sizeMode.value === 'sameHeight') {
       layoutType.value = 'horizontal';
     } else if (sizeMode.value === 'sameWidth') {
       layoutType.value = 'vertical';
+    } else if (sizeMode.value !== 'placeOneSquare') {
+      // Smart Auto-Selection for Grid when selecting other modes
+      layoutType.value = 'grid';
+      applySmartGridColumns();
     }
     updateUIGraying();
   });
 
-  // Dynamic UI Graying Logic
+  function applySmartGridColumns() {
+    const count = rawImages.length;
+    if (!count) return;
+    if (count === 1) gridCols.value = "1";
+    else if (count <= 4) gridCols.value = "2";
+    else if (count === 5 || count === 6 || count === 9) gridCols.value = "3";
+    else if (count === 7 || count === 8 || count >= 10) gridCols.value = "4";
+  }
+
   function updateUIGraying() {
-    // Gray out Corner Radius when Mask is not Rounded
     if (maskMode.value === 'rounded') {
       radiusGroup.classList.remove('disabled');
     } else {
       radiusGroup.classList.add('disabled');
     }
 
-    // Arrangement is ONLY disabled for "Edit places in one square"
     if (sizeMode.value === 'placeOneSquare') {
       layoutTypeControl.classList.add('disabled');
       gridColsGroup.classList.add('disabled');
     } else {
       layoutTypeControl.classList.remove('disabled');
-      // Columns selector is grayed out only when in Horizontal or Vertical mode
       if (layoutType.value === 'grid') {
         gridColsGroup.classList.remove('disabled');
       } else {
@@ -530,7 +591,10 @@
     if (!files.length) return;
 
     rawImages = [];
+    // Clear dynamic swatches while preserving "None" button
+    const noneBtn = paletteArea.querySelector('.swatch-none');
     paletteArea.innerHTML = '';
+    paletteArea.appendChild(noneBtn);
 
     const loadedImgs = await Promise.all(files.map(file => {
       return new Promise(resolve => {
@@ -560,12 +624,7 @@
       return offCanvas;
     });
 
-    const count = rawImages.length;
-    if (count === 1) gridCols.value = "1";
-    else if (count <= 4) gridCols.value = "2";
-    else if (count === 5 || count === 6 || count === 9) gridCols.value = "3";
-    else if (count === 7 || count === 8 || count >= 10) gridCols.value = "4";
-
+    applySmartGridColumns();
     extractSortedPalette(rawImages);
     generateBtn.disabled = false;
     updateUIGraying();
@@ -626,8 +685,10 @@
       swatch.title = col.hex;
       swatch.onclick = () => {
         if (activeColorTarget === 'inner') {
+          innerColorVal = col.hex;
           innerColor.value = col.hex;
         } else {
+          outerColorVal = col.hex;
           outerColor.value = col.hex;
         }
       };
@@ -683,7 +744,7 @@
       if (edge > maxEdge) maxEdge = edge;
     });
 
-    const s = parseInt(innerSpacing.value, 10);
+    const s = parseInt(innerSpacing.value, 10) || 0;
     const canvasSize = maxEdge + s;
 
     const count = normImages.length;
@@ -718,7 +779,7 @@
 
     const normImages = normalizeImagesToSameLongestEdge(rawImages);
     const img = normImages[idx];
-    const s = parseInt(innerSpacing.value, 10);
+    const s = parseInt(innerSpacing.value, 10) || 0;
     const maxDim = Math.max(img.width, img.height);
     
     modalCanvas.width = maxDim + s;
@@ -738,8 +799,12 @@
   function renderSingleSquareCanvas() {
     const normImages = normalizeImagesToSameLongestEdge(rawImages);
     const img = normImages[currentSingleIdx];
-    mCtx.fillStyle = innerColor.value;
-    mCtx.fillRect(0, 0, modalCanvas.width, modalCanvas.height);
+    mCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+
+    if (innerColorVal !== 'none') {
+      mCtx.fillStyle = innerColorVal;
+      mCtx.fillRect(0, 0, modalCanvas.width, modalCanvas.height);
+    }
 
     mCtx.save();
     mCtx.translate(modalCanvas.width / 2 + parseInt(modX.value, 10), modalCanvas.height / 2 + parseInt(modY.value, 10));
@@ -797,7 +862,7 @@
       if (edge > maxEdge) maxEdge = edge;
     });
 
-    const s = parseInt(innerSpacing.value, 10);
+    const s = parseInt(innerSpacing.value, 10) || 0;
     modalCanvas.width = maxEdge + s;
     modalCanvas.height = maxEdge + s;
 
@@ -823,9 +888,12 @@
 
   function renderMasterSquareCanvas() {
     const normImages = normalizeImagesToSameLongestEdge(rawImages);
+    mCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
 
-    mCtx.fillStyle = innerColor.value;
-    mCtx.fillRect(0, 0, modalCanvas.width, modalCanvas.height);
+    if (innerColorVal !== 'none') {
+      mCtx.fillStyle = innerColorVal;
+      mCtx.fillRect(0, 0, modalCanvas.width, modalCanvas.height);
+    }
 
     normImages.forEach((img, idx) => {
       const t = transforms[idx];
@@ -925,12 +993,36 @@
     }
   });
 
+  // Apply Mask directly onto an image asset before padding/assembly
+  function applyMaskToAsset(imgAsset, maskType, radius) {
+    if (maskType === 'none') return imgAsset;
+
+    const c = document.createElement('canvas');
+    c.width = imgAsset.width; 
+    c.height = imgAsset.height;
+    const cCtx = c.getContext('2d');
+
+    cCtx.save();
+    cCtx.beginPath();
+    if (maskType === 'rounded') {
+      cCtx.roundRect(0, 0, c.width, c.height, radius);
+    } else if (maskType === 'ellipse') {
+      cCtx.ellipse(c.width / 2, c.height / 2, c.width / 2, c.height / 2, 0, 0, 2 * Math.PI);
+    }
+    cCtx.clip();
+    cCtx.drawImage(imgAsset, 0, 0);
+    cCtx.restore();
+
+    return c;
+  }
+
   // Main Assembly Engine
   function buildCollage() {
-    const s = parseInt(innerSpacing.value, 10);
-    const b = parseInt(outerSpacing.value, 10);
+    const s = parseInt(innerSpacing.value, 10) || 0;
+    const b = parseInt(outerSpacing.value, 10) || 0;
     const mode = sizeMode.value;
     const mask = maskMode.value;
+    const r = parseInt(cornerRadius.value, 10) || 0;
 
     let processed = [];
 
@@ -947,16 +1039,19 @@
       masterCanvas.height = maxEdge + s;
       const mCtxOut = masterCanvas.getContext('2d');
 
-      mCtxOut.fillStyle = innerColor.value;
-      mCtxOut.fillRect(0, 0, masterCanvas.width, masterCanvas.height);
+      if (innerColorVal !== 'none') {
+        mCtxOut.fillStyle = innerColorVal;
+        mCtxOut.fillRect(0, 0, masterCanvas.width, masterCanvas.height);
+      }
 
       normImages.forEach((img, idx) => {
+        const maskedImg = applyMaskToAsset(img, mask, r);
         const t = transforms[idx];
         mCtxOut.save();
         mCtxOut.translate(masterCanvas.width / 2 + t.x, masterCanvas.width / 2 + t.y);
         mCtxOut.rotate(t.rot * Math.PI / 180);
         mCtxOut.scale(t.scale, t.scale);
-        mCtxOut.drawImage(img, -img.width / 2, -img.height / 2);
+        mCtxOut.drawImage(maskedImg, -maskedImg.width / 2, -maskedImg.height / 2);
         mCtxOut.restore();
       });
 
@@ -974,13 +1069,15 @@
       });
 
       processed = activeImages.map((img, idx) => {
+        const maskedImg = applyMaskToAsset(img, mask, r);
+
         if (mode === 'square') {
           const c = document.createElement('canvas');
           c.width = minEdge; 
           c.height = minEdge;
           const srcDim = Math.min(img.width, img.height);
           c.getContext('2d').drawImage(
-            img, 
+            maskedImg, 
             (img.width - srcDim) / 2, (img.height - srcDim) / 2, srcDim, srcDim, 
             0, 0, minEdge, minEdge
           );
@@ -991,7 +1088,7 @@
           const targetW = Math.round(targetH * (img.width / img.height));
           const c = document.createElement('canvas');
           c.width = targetW; c.height = targetH;
-          c.getContext('2d').drawImage(img, 0, 0, targetW, targetH);
+          c.getContext('2d').drawImage(maskedImg, 0, 0, targetW, targetH);
           return c;
         } 
         else if (mode === 'sameWidth') {
@@ -999,7 +1096,7 @@
           const targetH = Math.round(targetW * (img.height / img.width));
           const c = document.createElement('canvas');
           c.width = targetW; c.height = targetH;
-          c.getContext('2d').drawImage(img, 0, 0, targetW, targetH);
+          c.getContext('2d').drawImage(maskedImg, 0, 0, targetW, targetH);
           return c;
         }
         else if (mode === 'placeSquares') {
@@ -1007,15 +1104,17 @@
           const c = document.createElement('canvas');
           c.width = maxEdge + s; c.height = maxEdge + s;
           const cCtx = c.getContext('2d');
-          cCtx.fillStyle = innerColor.value;
-          cCtx.fillRect(0, 0, c.width, c.height);
+          if (innerColorVal !== 'none') {
+            cCtx.fillStyle = innerColorVal;
+            cCtx.fillRect(0, 0, c.width, c.height);
+          }
 
           const t = transforms[idx];
           cCtx.save();
           cCtx.translate(c.width / 2 + t.x, c.height / 2 + t.y);
           cCtx.rotate(t.rot * Math.PI / 180);
           cCtx.scale(t.scale, t.scale);
-          cCtx.drawImage(img, -img.width / 2, -img.height / 2);
+          cCtx.drawImage(maskedImg, -maskedImg.width / 2, -maskedImg.height / 2);
           cCtx.restore();
           return c;
         }
@@ -1024,40 +1123,16 @@
           const c = document.createElement('canvas');
           c.width = maxEdge; c.height = maxEdge;
           const cCtx = c.getContext('2d');
-          cCtx.fillStyle = innerColor.value;
-          cCtx.fillRect(0, 0, c.width, c.height);
-          cCtx.drawImage(img, (maxEdge - img.width) / 2, (maxEdge - img.height) / 2);
+          if (innerColorVal !== 'none') {
+            cCtx.fillStyle = innerColorVal;
+            cCtx.fillRect(0, 0, c.width, c.height);
+          }
+          cCtx.drawImage(maskedImg, (maxEdge - maskedImg.width) / 2, (maxEdge - maskedImg.height) / 2);
           return c;
         }
-        return img;
+        return maskedImg;
       });
     }
-
-    // Step 2: Apply Universal Mask Across All Tile Sub-Canvases
-    processed = processed.map(img => {
-      if (mask === 'none') return img;
-
-      const c = document.createElement('canvas');
-      c.width = img.width; c.height = img.height;
-      const cCtx = c.getContext('2d');
-
-      cCtx.fillStyle = innerColor.value;
-      cCtx.fillRect(0, 0, c.width, c.height);
-
-      cCtx.save();
-      cCtx.beginPath();
-      if (mask === 'rounded') {
-        const r = parseInt(cornerRadius.value, 10);
-        cCtx.roundRect(0, 0, c.width, c.height, r);
-      } else if (mask === 'ellipse') {
-        cCtx.ellipse(c.width / 2, c.height / 2, c.width / 2, c.height / 2, 0, 0, 2 * Math.PI);
-      }
-      cCtx.clip();
-      cCtx.drawImage(img, 0, 0);
-      cCtx.restore();
-
-      return c;
-    });
 
     // Step 3: Precise Layout Stitching
     const layout = (mode === 'placeOneSquare') ? 'grid' : layoutType.value;
@@ -1074,8 +1149,10 @@
       collageCanvas.width = totalW;
       collageCanvas.height = maxH + (s * 2);
 
-      cCtx.fillStyle = innerColor.value;
-      cCtx.fillRect(0, 0, collageCanvas.width, collageCanvas.height);
+      if (innerColorVal !== 'none') {
+        cCtx.fillStyle = innerColorVal;
+        cCtx.fillRect(0, 0, collageCanvas.width, collageCanvas.height);
+      }
 
       let curX = s;
       processed.forEach(img => {
@@ -1093,8 +1170,10 @@
       collageCanvas.width = maxW + (s * 2);
       collageCanvas.height = totalH;
 
-      cCtx.fillStyle = innerColor.value;
-      cCtx.fillRect(0, 0, collageCanvas.width, collageCanvas.height);
+      if (innerColorVal !== 'none') {
+        cCtx.fillStyle = innerColorVal;
+        cCtx.fillRect(0, 0, collageCanvas.width, collageCanvas.height);
+      }
 
       let curY = s;
       processed.forEach(img => {
@@ -1115,8 +1194,10 @@
       collageCanvas.width = (maxCellW * cols) + (s * (cols + 1));
       collageCanvas.height = (maxCellH * rows) + (s * (rows + 1));
 
-      cCtx.fillStyle = innerColor.value;
-      cCtx.fillRect(0, 0, collageCanvas.width, collageCanvas.height);
+      if (innerColorVal !== 'none') {
+        cCtx.fillStyle = innerColorVal;
+        cCtx.fillRect(0, 0, collageCanvas.width, collageCanvas.height);
+      }
 
       processed.forEach((img, idx) => {
         const col = idx % cols;
@@ -1134,15 +1215,18 @@
     canvas.width = finalW;
     canvas.height = finalH;
 
-    ctx.fillStyle = outerColor.value;
-    ctx.fillRect(0, 0, finalW, finalH);
+    ctx.clearRect(0, 0, finalW, finalH);
+
+    if (outerColorVal !== 'none') {
+      ctx.fillStyle = outerColorVal;
+      ctx.fillRect(0, 0, finalW, finalH);
+    }
+
     ctx.drawImage(collageCanvas, b, b);
 
-    // Enable Save Button
     saveBtn.disabled = false;
   }
 
-  // Save / Export Handler
   saveBtn.addEventListener('click', () => {
     canvas.toBlob(blob => {
       const url = URL.createObjectURL(blob);
