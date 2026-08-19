@@ -380,14 +380,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 21:43</span>
+    Updated: <span>2026-08-18 21:58</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608182143').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608182158').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -659,7 +659,6 @@
     animFrameId = requestAnimationFrame(renderCollage);
   }
 
-  // Dimension scaling calculation: Cover vs Fit without aspect distortion
   function calculateImageDimensions(imgWidth, imgHeight, maxW, maxH, mode = 'fit') {
     if (!imgWidth || !imgHeight) return { w: maxW, h: maxH };
     const ratio = mode === 'cover' 
@@ -785,7 +784,10 @@
       ctx.save();
 
       if (behavior === 'fixed') {
-        applyMaskPath(ctx, mask, cellX, cellY, cellW, cellH, r);
+        // Center mask boundaries precisely around cell center for fixed mode
+        const maskX = centerX - fit.w / 2;
+        const maskY = centerY - fit.h / 2;
+        applyMaskPath(ctx, mask, maskX, maskY, fit.w, fit.h, r);
         ctx.clip();
 
         ctx.translate(centerX + t.x, centerY + t.y);
