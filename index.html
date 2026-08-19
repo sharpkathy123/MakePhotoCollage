@@ -375,14 +375,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 17:10</span>
+    Updated: <span>2026-08-18 17:22</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608181710').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608181722').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -489,32 +489,38 @@
     gridColsGroup.classList.toggle('disabled', layoutType.value !== 'grid');
   }
 
-  // File Upload Handler - Natural Aspect Preserved
+  // File Upload Handler with Async Image Loading
   imgInput.addEventListener('change', async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
 
-    rawImages = await Promise.all(files.map(file => {
-      return new Promise(resolve => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.src = URL.createObjectURL(file);
-      });
-    }));
+    try {
+      rawImages = await Promise.all(files.map(file => {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error('Failed to load image file'));
+          img.src = URL.createObjectURL(file);
+        });
+      }));
 
-    transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
-    selectedIdx = 0;
+      transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
+      selectedIdx = 0;
 
-    applySmartGridColumns();
-    extractSortedPalette(rawImages);
-    paletteGroup.classList.remove('disabled');
-    touchHint.style.display = 'block';
-    photoControls.style.display = 'block';
-    saveBtn.disabled = false;
-    
-    updateUI();
-    syncSliderControls();
-    requestRender();
+      applySmartGridColumns();
+      extractSortedPalette(rawImages);
+      
+      paletteGroup.classList.remove('disabled');
+      touchHint.style.display = 'block';
+      photoControls.style.display = 'block';
+      saveBtn.disabled = false;
+      
+      updateUI();
+      syncSliderControls();
+      requestRender();
+    } catch (err) {
+      console.error('Error loading uploaded photos:', err);
+    }
   });
 
   function syncSliderControls() {
@@ -551,7 +557,7 @@
     }
   }
 
-  // Fast Feedback Live Listeners for Sliders & Selects
+  // Fast Feedback Live Listeners
   [innerSpacing, outerSpacing, layoutType, gridCols, maskMode, maskBehavior, cornerRadius].forEach(el => {
     el.addEventListener('input', () => {
       if (el === innerSpacing) innerSpacingVal.textContent = `${innerSpacing.value}px`;
@@ -570,14 +576,14 @@
   function getMaxEdgeAcrossAllRawImages() {
     let maxEdge = 0;
     rawImages.forEach(img => {
-      const edge = Math.max(img.width, img.height);
+      const edge = Math.max(img.naturalWidth || img.width || 0, img.naturalHeight || img.height || 0);
       if (edge > maxEdge) maxEdge = edge;
     });
     return maxEdge || 400;
   }
 
-  // Calculate proportional size fitting strictly within bounding dimensions
   function calculateFitDimensions(imgWidth, imgHeight, maxW, maxH) {
+    if (!imgWidth || !imgHeight) return { w: maxW, h: maxH };
     const ratio = Math.min(maxW / imgWidth, maxH / imgHeight);
     return {
       w: Math.round(imgWidth * ratio),
@@ -589,7 +595,6 @@
   function renderCollage() {
     if (!rawImages.length) return;
 
-    // Direct parseInt with safe fallback to 0 prevents canvas calculation bugs/disappearances
     const s = parseInt(innerSpacing.value, 10) || 0;
     const b = parseInt(outerSpacing.value, 10) || 0;
     const layout = layoutType.value;
@@ -634,7 +639,7 @@
       ctx.fillRect(b, b, totalW, totalH);
     }
 
-    // Draw Image Cells preserving native Aspect Ratio
+    // Draw Image Cells
     rawImages.forEach((img, idx) => {
       let cellX = 0, cellY = 0;
       if (layout === 'grid') {
@@ -652,17 +657,17 @@
 
       cellBounds.push({ idx, x: cellX, y: cellY, w: maxCellSize, h: maxCellSize });
 
-      const t = transforms[idx];
+      const t = transforms[idx] || { scale: 1, rot: 0, x: 0, y: 0 };
       const centerX = cellX + maxCellSize / 2;
       const centerY = cellY + maxCellSize / 2;
 
-      // Preserving natural un-distorted aspect ratio
-      const fit = calculateFitDimensions(img.width, img.height, maxCellSize, maxCellSize);
+      const imgW = img.naturalWidth || img.width;
+      const imgH = img.naturalHeight || img.height;
+      const fit = calculateFitDimensions(imgW, imgH, maxCellSize, maxCellSize);
 
       ctx.save();
 
       if (behavior === 'fixed') {
-        // Mask stays locked in cell grid window
         applyMaskPath(ctx, mask, cellX, cellY, maxCellSize, maxCellSize, r);
         ctx.clip();
 
@@ -671,7 +676,6 @@
         ctx.scale(t.scale, t.scale);
         ctx.drawImage(img, -fit.w / 2, -fit.h / 2, fit.w, fit.h);
       } else {
-        // Mask attached to moving photo
         ctx.translate(centerX + t.x, centerY + t.y);
         ctx.rotate(t.rot * Math.PI / 180);
         ctx.scale(t.scale, t.scale);
@@ -719,7 +723,6 @@
     }
   }
 
-  // Hit Testing to Select Cell directly on Canvas
   function getCanvasCoords(e) {
     const rect = canvas.getBoundingClientRect();
     const scaleFactor = canvas.width / rect.width;
@@ -759,7 +762,7 @@
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      initialPinchScale = transforms[selectedIdx].scale;
+      initialPinchScale = transforms[selectedIdx] ? transforms[selectedIdx].scale : 1;
     }
   }, { passive: true });
 
