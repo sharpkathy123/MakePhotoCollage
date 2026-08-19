@@ -114,9 +114,9 @@
       background-color: #e5e5ea;
       color: #1c1c1e;
       border: 1px solid var(--border-color);
-      padding: 8px;
+      padding: 8px 10px;
       border-radius: 8px;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       font-weight: 600;
       cursor: pointer;
     }
@@ -247,6 +247,11 @@
       margin-top: 10px;
     }
 
+    .button-group-inline {
+      display: flex;
+      gap: 6px;
+    }
+
     .version-stamp {
       font-size: 0.7rem;
       color: #8e8e93;
@@ -273,9 +278,13 @@
 
   <!-- Active Photo Controls -->
   <div class="photo-controls-card" id="photoControls" style="display:none;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
       <span style="font-size:0.85rem; font-weight:700; color:var(--accent-color);" id="selectedPhotoLabel">Photo 1 Selected</span>
-      <button class="btn-secondary" type="button" onclick="resetSelectedTransform()">Reset Photo</button>
+      <div class="button-group-inline">
+        <button class="btn-secondary" type="button" onclick="selectAllPhotos()">Select All</button>
+        <button class="btn-secondary" type="button" onclick="deselectAllPhotos()">Deselect All</button>
+        <button class="btn-secondary" type="button" onclick="resetSelectedTransform()">Reset Photo</button>
+      </div>
     </div>
     <div class="row">
       <div class="control">
@@ -371,14 +380,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 19:02</span>
+    Updated: <span>2026-08-18 19:22</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608181902').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608181922').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -421,11 +430,11 @@
   let outerColorVal = '#1c1c1e';
   let rawImages = [];
   let transforms = [];
-  let selectedIdx = 0;
+  let selectedIndices = [0]; // Tracks selected photos
   let cellBounds = [];
   let activeCols = 3;
 
-  // Gesture State
+  // Interaction State
   let isDragging = false;
   let dragStart = { x: 0, y: 0 };
   let initialTransform = { x: 0, y: 0 };
@@ -465,12 +474,15 @@
     requestRender();
   }
 
-  // Pure Math Calculation for Best Smart Grid Layout
-  // Rule 1: Zero-hole square preference.
-  // Rule 2: Wider-than-tall (cols >= rows) preference.
-  // Rule 3: Cap at 5 columns unless items exceed 25 (5x5).
+  // Smart Grid Column Calculator with Exception for 3 & 5 Photos
   function computeOptimalColumns(itemCount) {
     if (!itemCount || itemCount <= 0) return 1;
+
+    // Rule Exception: 3 or 5 photos default to Horizontal Strip
+    if (itemCount === 3 || itemCount === 5) {
+      layoutType.value = 'horizontal';
+      return itemCount;
+    }
 
     const maxCols = itemCount > 25 ? Math.ceil(Math.sqrt(itemCount)) : Math.min(5, itemCount);
     let bestCols = 1;
@@ -534,7 +546,7 @@
       }));
 
       transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
-      selectedIdx = 0;
+      selectedIndices = [0];
 
       activeCols = computeOptimalColumns(rawImages.length);
       
@@ -562,47 +574,74 @@
     }
   });
 
+  function selectAllPhotos() {
+    selectedIndices = rawImages.map((_, i) => i);
+    syncSliderControls();
+    requestRender();
+  }
+
+  function deselectAllPhotos() {
+    selectedIndices = [];
+    selectedPhotoLabel.textContent = "No Photos Selected";
+    requestRender();
+  }
+
   function syncSliderControls() {
-    if (!transforms[selectedIdx]) return;
-    const t = transforms[selectedIdx];
+    if (!selectedIndices.length) {
+      selectedPhotoLabel.textContent = "No Photos Selected";
+      return;
+    }
+    const primaryIdx = selectedIndices[0];
+    const t = transforms[primaryIdx] || { scale: 1, rot: 0 };
     modScale.value = t.scale;
     modRotate.value = t.rot;
     scaleVal.textContent = parseFloat(t.scale).toFixed(2);
     rotVal.textContent = `${t.rot}°`;
-    selectedPhotoLabel.textContent = `Photo ${selectedIdx + 1} Selected`;
+
+    if (selectedIndices.length === 1) {
+      selectedPhotoLabel.textContent = `Photo ${primaryIdx + 1} Selected`;
+    } else {
+      selectedPhotoLabel.textContent = `${selectedIndices.length} Photos Selected`;
+    }
   }
 
   modScale.addEventListener('input', () => {
-    if (transforms[selectedIdx]) {
-      transforms[selectedIdx].scale = parseFloat(modScale.value);
-      scaleVal.textContent = parseFloat(modScale.value).toFixed(2);
-      requestRender();
-    }
+    const scale = parseFloat(modScale.value);
+    scaleVal.textContent = scale.toFixed(2);
+    selectedIndices.forEach(idx => {
+      if (transforms[idx]) transforms[idx].scale = scale;
+    });
+    requestRender();
   });
 
   modRotate.addEventListener('input', () => {
-    if (transforms[selectedIdx]) {
-      transforms[selectedIdx].rot = parseInt(modRotate.value, 10);
-      rotVal.textContent = `${modRotate.value}°`;
-      requestRender();
-    }
+    const rot = parseInt(modRotate.value, 10);
+    rotVal.textContent = `${rot}°`;
+    selectedIndices.forEach(idx => {
+      if (transforms[idx]) transforms[idx].rot = rot;
+    });
+    requestRender();
   });
 
   function resetSelectedTransform() {
-    if (transforms[selectedIdx]) {
-      transforms[selectedIdx] = { scale: 1, rot: 0, x: 0, y: 0 };
-      syncSliderControls();
-      requestRender();
-    }
+    selectedIndices.forEach(idx => {
+      if (transforms[idx]) transforms[idx] = { scale: 1, rot: 0, x: 0, y: 0 };
+    });
+    syncSliderControls();
+    requestRender();
   }
 
-  // Live Listeners
+  // Direct Listeners with Immediate Re-render
   [innerSpacing, outerSpacing, layoutType, maskMode, maskBehavior, cornerRadius].forEach(el => {
     el.addEventListener('input', () => {
       if (el === innerSpacing) innerSpacingVal.textContent = `${innerSpacing.value}px`;
       if (el === outerSpacing) outerSpacingVal.textContent = `${outerSpacing.value}px`;
       if (el === maskMode) updateUI();
       if (el === cornerRadius) radiusVal.textContent = `${cornerRadius.value}px`;
+      requestRender();
+    });
+    el.addEventListener('change', () => {
+      if (el === maskMode) updateUI();
       requestRender();
     });
   });
@@ -621,7 +660,7 @@
     };
   }
 
-  // Main Canvas Render Engine (Capped total cell size to 600px max to protect iPad memory limits)
+  // Main Canvas Render Engine
   function renderCollage() {
     if (!rawImages.length) return;
 
@@ -635,9 +674,6 @@
     const mask = maskMode.value;
     const behavior = maskBehavior.value;
     const r = parseInt(cornerRadius.value, 10) || 0;
-
-    // HARD CANVAS MEMORY SAFETY GUARD:
-    // Cap target cell size so canvas resolution NEVER exceeds Safari memory limits
     const maxCellSize = 600;
 
     cellBounds = [];
@@ -723,24 +759,27 @@
 
       ctx.restore();
 
-      // Selected Highlight Ring
-      if (idx === selectedIdx) {
+      // Draw Blue Selection Box ONLY while dragging/moving
+      if (isDragging && selectedIndices.includes(idx)) {
         ctx.save();
         ctx.strokeStyle = '#007aff';
         ctx.lineWidth = Math.max(4, Math.round(maxCellSize * 0.015));
         ctx.strokeRect(cellX, cellY, maxCellSize, maxCellSize);
-
-        ctx.beginPath();
-        ctx.arc(cellX + 16, cellY + 16, 12, 0, 2 * Math.PI);
-        ctx.fillStyle = '#007aff';
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 12px -apple-system, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(idx + 1, cellX + 16, cellY + 16);
         ctx.restore();
       }
+
+      // Always Draw Number Badge
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cellX + 22, cellY + 22, 14, 0, 2 * Math.PI);
+      ctx.fillStyle = selectedIndices.includes(idx) ? '#007aff' : 'rgba(0, 0, 0, 0.6)';
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 13px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(idx + 1, cellX + 22, cellY + 22);
+      ctx.restore();
     });
   }
 
@@ -785,40 +824,49 @@
       const coords = getCanvasCoords(e);
       const hit = hitTestCell(coords.x, coords.y);
       if (hit !== -1) {
-        selectedIdx = hit;
+        selectedIndices = [hit];
         syncSliderControls();
       }
       isDragging = true;
       dragStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      initialTransform = { ...transforms[selectedIdx] };
+      const primaryIdx = selectedIndices[0];
+      initialTransform = { ...transforms[primaryIdx] };
+      requestRender();
     } else if (e.touches.length === 2) {
       isDragging = false;
       initialPinchDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      initialPinchScale = transforms[selectedIdx] ? transforms[selectedIdx].scale : 1;
+      const primaryIdx = selectedIndices[0];
+      initialPinchScale = transforms[primaryIdx] ? transforms[primaryIdx].scale : 1;
     }
   }, { passive: true });
 
   canvas.addEventListener('touchmove', (e) => {
-    if (isDragging && e.touches.length === 1 && transforms[selectedIdx]) {
+    if (isDragging && e.touches.length === 1 && selectedIndices.length) {
       const rect = canvas.getBoundingClientRect();
       const scaleFactor = canvas.width / rect.width;
       const dx = (e.touches[0].clientX - dragStart.x) * scaleFactor;
       const dy = (e.touches[0].clientY - dragStart.y) * scaleFactor;
 
-      transforms[selectedIdx].x = Math.round(initialTransform.x + dx);
-      transforms[selectedIdx].y = Math.round(initialTransform.y + dy);
+      selectedIndices.forEach(idx => {
+        if (transforms[idx]) {
+          transforms[idx].x = Math.round(initialTransform.x + dx);
+          transforms[idx].y = Math.round(initialTransform.y + dy);
+        }
+      });
       requestRender();
-    } else if (e.touches.length === 2 && initialPinchDist && transforms[selectedIdx]) {
+    } else if (e.touches.length === 2 && initialPinchDist && selectedIndices.length) {
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
       const zoom = dist / initialPinchDist;
       const newScale = Math.min(3, Math.max(0.1, parseFloat((initialPinchScale * zoom).toFixed(2))));
-      transforms[selectedIdx].scale = newScale;
+      selectedIndices.forEach(idx => {
+        if (transforms[idx]) transforms[idx].scale = newScale;
+      });
       syncSliderControls();
       requestRender();
     }
@@ -827,6 +875,7 @@
   canvas.addEventListener('touchend', () => {
     isDragging = false;
     initialPinchDist = null;
+    requestRender();
   });
 
   // Mouse Handlers
@@ -834,27 +883,36 @@
     const coords = getCanvasCoords(e);
     const hit = hitTestCell(coords.x, coords.y);
     if (hit !== -1) {
-      selectedIdx = hit;
+      selectedIndices = [hit];
       syncSliderControls();
     }
     isDragging = true;
     dragStart = { x: e.clientX, y: e.clientY };
-    initialTransform = { ...transforms[selectedIdx] };
+    const primaryIdx = selectedIndices[0];
+    initialTransform = { ...transforms[primaryIdx] };
+    requestRender();
   });
 
   window.addEventListener('mousemove', (e) => {
-    if (!isDragging || !transforms[selectedIdx]) return;
+    if (!isDragging || !selectedIndices.length) return;
     const rect = canvas.getBoundingClientRect();
     const scaleFactor = canvas.width / rect.width;
     const dx = (e.clientX - dragStart.x) * scaleFactor;
     const dy = (e.clientY - dragStart.y) * scaleFactor;
 
-    transforms[selectedIdx].x = Math.round(initialTransform.x + dx);
-    transforms[selectedIdx].y = Math.round(initialTransform.y + dy);
+    selectedIndices.forEach(idx => {
+      if (transforms[idx]) {
+        transforms[idx].x = Math.round(initialTransform.x + dx);
+        transforms[idx].y = Math.round(initialTransform.y + dy);
+      }
+    });
     requestRender();
   });
 
-  window.addEventListener('mouseup', () => { isDragging = false; });
+  window.addEventListener('mouseup', () => { 
+    isDragging = false; 
+    requestRender();
+  });
 
   function extractSortedPalette(canvases) {
     const noneBtn = paletteArea.querySelector('.swatch-none');
