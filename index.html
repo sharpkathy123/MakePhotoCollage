@@ -380,14 +380,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 21:29</span>
+    Updated: <span>2026-08-18 21:43</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608182129').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608182143').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -478,13 +478,11 @@
   function computeOptimalColumns(itemCount) {
     if (!itemCount || itemCount <= 0) return 1;
 
-    // Rule Exception: 3 or 5 photos default to Horizontal Strip
     if (itemCount === 3 || itemCount === 5) {
       layoutType.value = 'horizontal';
       return itemCount;
     }
 
-    // Default back to Grid for all other photo counts
     layoutType.value = 'grid';
 
     const maxCols = itemCount > 25 ? Math.ceil(Math.sqrt(itemCount)) : Math.min(5, itemCount);
@@ -530,7 +528,6 @@
   function updateUI() {
     radiusGroup.classList.toggle('disabled', maskMode.value !== 'rounded');
     
-    // Columns dropdown is strictly ONLY enabled during Grid layout
     const isGrid = layoutType.value === 'grid';
     gridCols.disabled = !isGrid || !rawImages.length;
     gridColsGroup.classList.toggle('disabled', !isGrid || !rawImages.length);
@@ -662,9 +659,13 @@
     animFrameId = requestAnimationFrame(renderCollage);
   }
 
-  function calculateFitDimensions(imgWidth, imgHeight, maxW, maxH) {
+  // Dimension scaling calculation: Cover vs Fit without aspect distortion
+  function calculateImageDimensions(imgWidth, imgHeight, maxW, maxH, mode = 'fit') {
     if (!imgWidth || !imgHeight) return { w: maxW, h: maxH };
-    const ratio = Math.min(maxW / imgWidth, maxH / imgHeight);
+    const ratio = mode === 'cover' 
+      ? Math.max(maxW / imgWidth, maxH / imgHeight)
+      : Math.min(maxW / imgWidth, maxH / imgHeight);
+
     return {
       w: Math.round(imgWidth * ratio),
       h: Math.round(imgHeight * ratio)
@@ -700,13 +701,10 @@
       }
 
       if (layout === 'horizontal') {
-        // Uniform height, dynamic proportional width
         return { w: Math.round(baseDimension * aspect), h: baseDimension };
       } else if (layout === 'vertical') {
-        // Uniform width, dynamic proportional height
         return { w: baseDimension, h: Math.round(baseDimension / aspect) };
       } else {
-        // Standard Grid Square
         return { w: baseDimension, h: baseDimension };
       }
     });
@@ -779,7 +777,10 @@
 
       const imgW = img.naturalWidth || img.width;
       const imgH = img.naturalHeight || img.height;
-      const fit = calculateFitDimensions(imgW, imgH, cellW, cellH);
+
+      // Use cover mode (aspect-fill) when square/circle mask is selected
+      const fitMode = (mask === 'square' || mask === 'circle') ? 'cover' : 'fit';
+      const fit = calculateImageDimensions(imgW, imgH, cellW, cellH, fitMode);
 
       ctx.save();
 
