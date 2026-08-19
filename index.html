@@ -299,7 +299,6 @@
         <option value="vertical">Vertical Feed</option>
       </select>
     </div>
-    <!-- Column Dropdown remains cleanly disabled until photos exist -->
     <div class="control disabled" id="gridColsGroup">
       <label for="gridCols">Columns</label>
       <select id="gridCols" disabled>
@@ -372,14 +371,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 18:50</span>
+    Updated: <span>2026-08-18 19:02</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608181850').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608181902').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -424,7 +423,7 @@
   let transforms = [];
   let selectedIdx = 0;
   let cellBounds = [];
-  let activeCols = 3; // Pure numeric source of truth
+  let activeCols = 3;
 
   // Gesture State
   let isDragging = false;
@@ -496,7 +495,6 @@
     return bestCols;
   }
 
-  // Rebuild Dropdown ONLY after photo data is loaded
   function syncColumnDropdown(itemCount, selectedCols) {
     if (!itemCount) return;
 
@@ -520,7 +518,7 @@
     gridColsGroup.classList.toggle('disabled', layoutType.value !== 'grid');
   }
 
-  // File Upload Handler (Data First -> Math Second -> UI Render Third)
+  // File Upload Handler
   imgInput.addEventListener('change', async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
@@ -538,10 +536,8 @@
       transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
       selectedIdx = 0;
 
-      // Calculate Math pure values
       activeCols = computeOptimalColumns(rawImages.length);
       
-      // Update UI Controls
       syncColumnDropdown(rawImages.length, activeCols);
       extractSortedPalette(rawImages);
       
@@ -600,7 +596,7 @@
     }
   }
 
-  // Fast Feedback Live Listeners
+  // Live Listeners
   [innerSpacing, outerSpacing, layoutType, maskMode, maskBehavior, cornerRadius].forEach(el => {
     el.addEventListener('input', () => {
       if (el === innerSpacing) innerSpacingVal.textContent = `${innerSpacing.value}px`;
@@ -616,15 +612,6 @@
     animFrameId = requestAnimationFrame(renderCollage);
   }
 
-  function getMaxEdgeAcrossAllRawImages() {
-    let maxEdge = 0;
-    rawImages.forEach(img => {
-      const edge = Math.max(img.naturalWidth || img.width || 0, img.naturalHeight || img.height || 0);
-      if (edge > maxEdge) maxEdge = edge;
-    });
-    return maxEdge || 400;
-  }
-
   function calculateFitDimensions(imgWidth, imgHeight, maxW, maxH) {
     if (!imgWidth || !imgHeight) return { w: maxW, h: maxH };
     const ratio = Math.min(maxW / imgWidth, maxH / imgHeight);
@@ -634,7 +621,7 @@
     };
   }
 
-  // Main Canvas Render Engine (Uses pure state variable activeCols)
+  // Main Canvas Render Engine (Capped total cell size to 600px max to protect iPad memory limits)
   function renderCollage() {
     if (!rawImages.length) return;
 
@@ -642,14 +629,16 @@
     const b = parseInt(outerSpacing.value, 10) || 0;
     const layout = layoutType.value;
     
-    // Strict numeric guarantees driven by activeCols state
     const cols = Math.max(1, activeCols || 1);
     const rows = Math.max(1, Math.ceil(rawImages.length / cols));
     
     const mask = maskMode.value;
     const behavior = maskBehavior.value;
     const r = parseInt(cornerRadius.value, 10) || 0;
-    const maxCellSize = getMaxEdgeAcrossAllRawImages();
+
+    // HARD CANVAS MEMORY SAFETY GUARD:
+    // Cap target cell size so canvas resolution NEVER exceeds Safari memory limits
+    const maxCellSize = 600;
 
     cellBounds = [];
 
