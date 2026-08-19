@@ -380,14 +380,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 19:22</span>
+    Updated: <span>2026-08-18 19:38</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608181922').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608181938').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -430,7 +430,7 @@
   let outerColorVal = '#1c1c1e';
   let rawImages = [];
   let transforms = [];
-  let selectedIndices = [0]; // Tracks selected photos
+  let selectedIndices = [0];
   let cellBounds = [];
   let activeCols = 3;
 
@@ -474,7 +474,7 @@
     requestRender();
   }
 
-  // Smart Grid Column Calculator with Exception for 3 & 5 Photos
+  // Smart Grid Column Calculator
   function computeOptimalColumns(itemCount) {
     if (!itemCount || itemCount <= 0) return 1;
 
@@ -507,6 +507,7 @@
     return bestCols;
   }
 
+  // Populate Dropdown Options without EVER locking or disabling controls
   function syncColumnDropdown(itemCount, selectedCols) {
     if (!itemCount) return;
 
@@ -527,7 +528,7 @@
 
   function updateUI() {
     radiusGroup.classList.toggle('disabled', maskMode.value !== 'rounded');
-    gridColsGroup.classList.toggle('disabled', layoutType.value !== 'grid');
+    // NEVER lock gridColsGroup based on layout selection
   }
 
   // File Upload Handler
@@ -564,6 +565,11 @@
     } catch (err) {
       console.error('Error loading uploaded photos:', err);
     }
+  });
+
+  layoutType.addEventListener('change', () => {
+    updateUI();
+    requestRender();
   });
 
   gridCols.addEventListener('change', (e) => {
@@ -631,8 +637,8 @@
     requestRender();
   }
 
-  // Direct Listeners with Immediate Re-render
-  [innerSpacing, outerSpacing, layoutType, maskMode, maskBehavior, cornerRadius].forEach(el => {
+  // Fast Feedback Listeners
+  [innerSpacing, outerSpacing, maskMode, maskBehavior, cornerRadius].forEach(el => {
     el.addEventListener('input', () => {
       if (el === innerSpacing) innerSpacingVal.textContent = `${innerSpacing.value}px`;
       if (el === outerSpacing) outerSpacingVal.textContent = `${outerSpacing.value}px`;
@@ -914,6 +920,28 @@
     requestRender();
   });
 
+  // Helper: Convert RGB to HSL for Color Sorting
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h, s, l = (max + min) / 2;
+
+    if (max === min) {
+      h = s = 0;
+    } else {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h /= 6;
+    }
+    return { h: h * 360, s: s * 100, l: l * 100 };
+  }
+
+  // Extract, Deduplicate, and Color-Sort Sampled Swatches
   function extractSortedPalette(canvases) {
     const noneBtn = paletteArea.querySelector('.swatch-none');
     paletteArea.innerHTML = '';
@@ -925,16 +953,26 @@
       cCtx.drawImage(c, 0, 0, 5, 5);
       const data = cCtx.getImageData(0, 0, 5, 5).data;
       for (let i = 0; i < data.length; i += 4) {
-        const hex = "#" + ((1 << 24) + (data[i] << 16) + (data[i+1] << 8) + data[i+2]).toString(16).slice(1);
-        rawColors.push({ hex, r: data[i], g: data[i+1], b: data[i+2] });
+        const r = data[i], g = data[i+1], b = data[i+2];
+        const hex = "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        const hsl = rgbToHsl(r, g, b);
+        rawColors.push({ hex, r, g, b, ...hsl });
       }
     });
 
+    // Perceptual Deduplication using RGB Euclidean Distance
     const unique = [];
     rawColors.forEach(item => {
-      if (!unique.some(u => Math.hypot(u.r-item.r, u.g-item.g, u.b-item.b) < 35)) {
+      if (!unique.some(u => Math.hypot(u.r - item.r, u.g - item.g, u.b - item.b) < 35)) {
         unique.push(item);
       }
+    });
+
+    // Sort by Rainbow Gradient (Hue -> Saturation -> Lightness)
+    unique.sort((a, b) => {
+      if (Math.abs(a.h - b.h) > 15) return a.h - b.h;
+      if (Math.abs(a.s - b.s) > 15) return b.s - a.s;
+      return b.l - a.l;
     });
 
     unique.forEach(col => {
