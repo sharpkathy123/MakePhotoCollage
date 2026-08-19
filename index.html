@@ -375,14 +375,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 17:22</span>
+    Updated: <span>2026-08-18 17:42</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608181722').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608181742').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -467,20 +467,29 @@
     requestRender();
   }
 
+  // Dynamic Smart Grid Column Calculator
+  // Zero-hole optimization, favoring square aspect ratios (min difference between rows & cols)
   function applySmartGridColumns() {
     const n = rawImages.length;
     if (!n) return;
+
     const maxCols = Math.min(5, n);
-    let bestCols = maxCols, bestHoles = Infinity, bestDiff = Infinity;
+    let bestCols = maxCols;
+    let bestHoles = Infinity;
+    let bestDiff = Infinity;
 
     for (let cols = maxCols; cols >= 1; cols--) {
       const rows = Math.ceil(n / cols);
       const holes = rows * cols - n;
       const diff = Math.abs(rows - cols);
+
       if (holes < bestHoles || (holes === bestHoles && diff < bestDiff)) {
-        bestCols = cols; bestHoles = holes; bestDiff = diff;
+        bestCols = cols;
+        bestHoles = holes;
+        bestDiff = diff;
       }
     }
+
     gridCols.value = String(bestCols);
   }
 
@@ -489,7 +498,7 @@
     gridColsGroup.classList.toggle('disabled', layoutType.value !== 'grid');
   }
 
-  // File Upload Handler with Async Image Loading
+  // File Upload Handler
   imgInput.addEventListener('change', async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
@@ -598,8 +607,9 @@
     const s = parseInt(innerSpacing.value, 10) || 0;
     const b = parseInt(outerSpacing.value, 10) || 0;
     const layout = layoutType.value;
+    
     const cols = parseInt(gridCols.value, 10) || 1;
-    const rows = Math.ceil(rawImages.length / cols);
+    const rows = Math.ceil(rawImages.length / cols) || 1;
     const mask = maskMode.value;
     const behavior = maskBehavior.value;
     const r = parseInt(cornerRadius.value, 10) || 0;
