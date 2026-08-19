@@ -380,14 +380,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 20:04</span>
+    Updated: <span>2026-08-18 21:29</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608182004').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608182129').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -434,7 +434,7 @@
   let cellBounds = [];
   let activeCols = 3;
 
-  // Interaction State
+  // Gesture State
   let isDragging = false;
   let dragStart = { x: 0, y: 0 };
   let initialTransform = { x: 0, y: 0 };
@@ -474,7 +474,7 @@
     requestRender();
   }
 
-  // Pure Smart Grid Column Math
+  // Pure Smart Grid Column Calculator
   function computeOptimalColumns(itemCount) {
     if (!itemCount || itemCount <= 0) return 1;
 
@@ -536,7 +536,7 @@
     gridColsGroup.classList.toggle('disabled', !isGrid || !rawImages.length);
   }
 
-  // File Upload Handler - Always resets layout state
+  // File Upload Handler
   imgInput.addEventListener('change', async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
@@ -554,7 +554,6 @@
       transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
       selectedIndices = [0];
 
-      // Reset & compute fresh optimal layout for new batch
       activeCols = computeOptimalColumns(rawImages.length);
       
       syncColumnDropdown(rawImages.length, activeCols);
@@ -672,7 +671,7 @@
     };
   }
 
-  // Main Canvas Render Engine
+  // Pure Aspect-Aware Render Engine
   function renderCollage() {
     if (!rawImages.length) return;
 
@@ -686,20 +685,45 @@
     const mask = maskMode.value;
     const behavior = maskBehavior.value;
     const r = parseInt(cornerRadius.value, 10) || 0;
-    const baseCellSize = 600;
+    const baseDimension = 600;
 
     cellBounds = [];
 
+    // Pre-calculate natural cell dimensions for every layout type
+    const cellLayouts = rawImages.map(img => {
+      const imgW = img.naturalWidth || img.width || 1;
+      const imgH = img.naturalHeight || img.height || 1;
+      const aspect = imgW / imgH;
+
+      if (mask === 'square' || mask === 'circle') {
+        return { w: baseDimension, h: baseDimension };
+      }
+
+      if (layout === 'horizontal') {
+        // Uniform height, dynamic proportional width
+        return { w: Math.round(baseDimension * aspect), h: baseDimension };
+      } else if (layout === 'vertical') {
+        // Uniform width, dynamic proportional height
+        return { w: baseDimension, h: Math.round(baseDimension / aspect) };
+      } else {
+        // Standard Grid Square
+        return { w: baseDimension, h: baseDimension };
+      }
+    });
+
     let totalW = 0, totalH = 0;
+
     if (layout === 'grid') {
-      totalW = (baseCellSize * cols) + (s * (cols + 1));
-      totalH = (baseCellSize * rows) + (s * (rows + 1));
+      totalW = (baseDimension * cols) + (s * (cols + 1));
+      totalH = (baseDimension * rows) + (s * (rows + 1));
     } else if (layout === 'horizontal') {
-      totalW = (baseCellSize * rawImages.length) + (s * (rawImages.length + 1));
-      totalH = baseCellSize + (s * 2);
+      const sumWidths = cellLayouts.reduce((acc, cell) => acc + cell.w, 0);
+      totalW = sumWidths + (s * (rawImages.length + 1));
+      totalH = baseDimension + (s * 2);
     } else { // vertical
-      totalW = baseCellSize + (s * 2);
-      totalH = (baseCellSize * rawImages.length) + (s * (rawImages.length + 1));
+      const sumHeights = cellLayouts.reduce((acc, cell) => acc + cell.h, 0);
+      totalW = baseDimension + (s * 2);
+      totalH = sumHeights + (s * (rawImages.length + 1));
     }
 
     const collageW = totalW + (b * 2);
@@ -722,32 +746,30 @@
       ctx.fillRect(b, b, totalW, totalH);
     }
 
-    // Draw Image Cells
+    // Position & Draw Image Cells
+    let runningOffset = 0;
+
     rawImages.forEach((img, idx) => {
+      const cellDim = cellLayouts[idx];
       let cellX = 0, cellY = 0;
-      let cellW = baseCellSize, cellH = baseCellSize;
 
       if (layout === 'grid') {
         const c = idx % cols;
         const rw = Math.floor(idx / cols);
-        cellX = b + s + c * (baseCellSize + s);
-        cellY = b + s + rw * (baseCellSize + s);
+        cellX = b + s + c * (baseDimension + s);
+        cellY = b + s + rw * (baseDimension + s);
       } else if (layout === 'horizontal') {
-        cellX = b + s + idx * (baseCellSize + s);
+        cellX = b + s + runningOffset;
         cellY = b + s;
+        runningOffset += cellDim.w + s;
       } else { // vertical
         cellX = b + s;
-        cellY = b + s + idx * (baseCellSize + s);
+        cellY = b + s + runningOffset;
+        runningOffset += cellDim.h + s;
       }
 
-      // If Square or Circle mask is active, force true 1:1 square cell bounding box
-      if (mask === 'square' || mask === 'circle') {
-        const squareEdge = Math.min(cellW, cellH);
-        cellX += (cellW - squareEdge) / 2;
-        cellY += (cellH - squareEdge) / 2;
-        cellW = squareEdge;
-        cellH = squareEdge;
-      }
+      const cellW = cellDim.w;
+      const cellH = cellDim.h;
 
       cellBounds.push({ idx, x: cellX, y: cellY, w: cellW, h: cellH });
 
@@ -786,7 +808,7 @@
       if (isDragging && selectedIndices.includes(idx)) {
         ctx.save();
         ctx.strokeStyle = '#007aff';
-        ctx.lineWidth = Math.max(4, Math.round(cellW * 0.015));
+        ctx.lineWidth = Math.max(4, Math.round(Math.min(cellW, cellH) * 0.015));
         ctx.strokeRect(cellX, cellY, cellW, cellH);
         ctx.restore();
       }
