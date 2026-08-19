@@ -305,8 +305,6 @@
         <option value="1">1 Column</option>
         <option value="2">2 Columns</option>
         <option value="3">3 Columns</option>
-        <option value="4">4 Columns</option>
-        <option value="5">5 Columns</option>
       </select>
     </div>
   </div>
@@ -375,14 +373,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 17:48</span>
+    Updated: <span>2026-08-18 18:12</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608181748').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608181812').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -467,34 +465,54 @@
     requestRender();
   }
 
-  // Dynamic Smart Grid Column Calculator with strict DOM synchronization
+  function rebuildColumnDropdown(maxCols) {
+    gridCols.innerHTML = '';
+    for (let c = 1; c <= maxCols; c++) {
+      const opt = document.createElement('option');
+      opt.value = String(c);
+      opt.textContent = `${c} Column${c > 1 ? 's' : ''}`;
+      gridCols.appendChild(opt);
+    }
+  }
+
+  // Smart Grid Calculator adhering to rules:
+  // 1. Try to make a square with no holes.
+  // 2. Try to make a rectangle closest to square that is wider than tall (cols >= rows) with no holes.
+  // 3. Cap at 5 columns unless item count exceeds 25 (5x5).
   function applySmartGridColumns() {
     const n = rawImages.length;
     if (!n) return;
 
-    const maxCols = Math.min(5, n);
-    let bestCols = maxCols;
-    let bestHoles = Infinity;
-    let bestDiff = Infinity;
+    const maxAllowedCols = n > 25 ? Math.ceil(Math.sqrt(n)) : Math.min(5, n);
+    rebuildColumnDropdown(Math.max(5, maxAllowedCols));
 
-    for (let cols = maxCols; cols >= 1; cols--) {
+    let bestCols = 1;
+    let lowestPenalty = Infinity;
+
+    for (let cols = 1; cols <= maxAllowedCols; cols++) {
       const rows = Math.ceil(n / cols);
-      const holes = rows * cols - n;
-      const diff = Math.abs(rows - cols);
+      const holes = (rows * cols) - n;
+      const isWiderOrEqual = cols >= rows;
 
-      if (holes < bestHoles || (holes === bestHoles && diff < bestDiff)) {
+      // Heavy penalty for tall layouts (cols < rows)
+      const orientationPenalty = isWiderOrEqual ? 0 : 50;
+
+      // Ratio difference from 1:1 square
+      const ratio = cols / rows;
+      const squarenessDiff = Math.abs(ratio - 1.0);
+
+      // Penalty for empty grid slots
+      const holePenalty = holes * 10;
+
+      const penalty = orientationPenalty + (squarenessDiff * 20) + holePenalty;
+
+      if (penalty < lowestPenalty) {
+        lowestPenalty = penalty;
         bestCols = cols;
-        bestHoles = holes;
-        bestDiff = diff;
       }
     }
 
     gridCols.value = String(bestCols);
-    
-    // Explicitly fallback if matching value option is missing
-    if (gridCols.value !== String(bestCols)) {
-      gridCols.value = "3";
-    }
   }
 
   function updateUI() {
@@ -612,9 +630,10 @@
     const b = parseInt(outerSpacing.value, 10) || 0;
     const layout = layoutType.value;
     
-    // Strict parsing with fallback guarantees canvas size math never evaluates to NaN
-    const parsedCols = parseInt(gridCols.value, 10);
-    const cols = Math.max(1, isNaN(parsedCols) ? 1 : parsedCols);
+    let cols = parseInt(gridCols.value, 10);
+    if (!cols || isNaN(cols) || cols < 1) {
+      cols = Math.min(3, rawImages.length);
+    }
     const rows = Math.max(1, Math.ceil(rawImages.length / cols));
     
     const mask = maskMode.value;
