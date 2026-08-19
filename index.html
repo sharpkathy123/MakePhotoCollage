@@ -305,6 +305,8 @@
         <option value="1">1 Column</option>
         <option value="2">2 Columns</option>
         <option value="3">3 Columns</option>
+        <option value="4">4 Columns</option>
+        <option value="5">5 Columns</option>
       </select>
     </div>
   </div>
@@ -373,14 +375,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 18:12</span>
+    Updated: <span>2026-08-18 18:25</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608181812').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608181825').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -465,16 +467,6 @@
     requestRender();
   }
 
-  function rebuildColumnDropdown(maxCols) {
-    gridCols.innerHTML = '';
-    for (let c = 1; c <= maxCols; c++) {
-      const opt = document.createElement('option');
-      opt.value = String(c);
-      opt.textContent = `${c} Column${c > 1 ? 's' : ''}`;
-      gridCols.appendChild(opt);
-    }
-  }
-
   // Smart Grid Calculator adhering to rules:
   // 1. Try to make a square with no holes.
   // 2. Try to make a rectangle closest to square that is wider than tall (cols >= rows) with no holes.
@@ -484,7 +476,6 @@
     if (!n) return;
 
     const maxAllowedCols = n > 25 ? Math.ceil(Math.sqrt(n)) : Math.min(5, n);
-    rebuildColumnDropdown(Math.max(5, maxAllowedCols));
 
     let bestCols = 1;
     let lowestPenalty = Infinity;
@@ -512,7 +503,8 @@
       }
     }
 
-    gridCols.value = String(bestCols);
+    // Safely assign without mutating DOM options
+    gridCols.value = String(Math.min(5, bestCols));
   }
 
   function updateUI() {
@@ -630,10 +622,9 @@
     const b = parseInt(outerSpacing.value, 10) || 0;
     const layout = layoutType.value;
     
-    let cols = parseInt(gridCols.value, 10);
-    if (!cols || isNaN(cols) || cols < 1) {
-      cols = Math.min(3, rawImages.length);
-    }
+    // Absolute NaN guardrail ensures cols is strictly a valid positive integer
+    let parsedCols = parseInt(gridCols.value, 10);
+    const cols = (isNaN(parsedCols) || parsedCols < 1) ? Math.min(3, rawImages.length) : parsedCols;
     const rows = Math.max(1, Math.ceil(rawImages.length / cols));
     
     const mask = maskMode.value;
