@@ -271,7 +271,7 @@
     <div class="touch-hint" id="touchHint" style="display:none;">🖐 Tap photo to select &bull; Drag to move &bull; Pinch to zoom</div>
   </div>
 
-  <!-- Dynamic Active Photo Adjustment Bar -->
+  <!-- Active Photo Controls -->
   <div class="photo-controls-card" id="photoControls" style="display:none;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
       <span style="font-size:0.85rem; font-weight:700; color:var(--accent-color);" id="selectedPhotoLabel">Photo 1 Selected</span>
@@ -299,16 +299,11 @@
         <option value="vertical">Vertical Feed</option>
       </select>
     </div>
-    <div class="control" id="gridColsGroup">
+    <!-- Column Dropdown remains cleanly disabled until photos exist -->
+    <div class="control disabled" id="gridColsGroup">
       <label for="gridCols">Columns</label>
-      <!-- OPTIONS EXPLICITLY EXTENDED UP TO 6 TO PREVENT VALUE MATCH FAILS -->
-      <select id="gridCols">
-        <option value="1">1 Column</option>
-        <option value="2">2 Columns</option>
-        <option value="3">3 Columns</option>
-        <option value="4">4 Columns</option>
-        <option value="5">5 Columns</option>
-        <option value="6">6 Columns</option>
+      <select id="gridCols" disabled>
+        <option value="">Select Photos First</option>
       </select>
     </div>
   </div>
@@ -377,14 +372,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 18:28</span>
+    Updated: <span>2026-08-18 18:50</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608181828').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608181850').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -421,6 +416,7 @@
   const scaleVal = document.getElementById('scaleVal');
   const rotVal = document.getElementById('rotVal');
 
+  // Application State
   let activeColorTarget = 'inner';
   let innerColorVal = '#ffffff';
   let outerColorVal = '#1c1c1e';
@@ -428,8 +424,9 @@
   let transforms = [];
   let selectedIdx = 0;
   let cellBounds = [];
+  let activeCols = 3; // Pure numeric source of truth
 
-  // Interaction State
+  // Gesture State
   let isDragging = false;
   let dragStart = { x: 0, y: 0 };
   let initialTransform = { x: 0, y: 0 };
@@ -469,32 +466,24 @@
     requestRender();
   }
 
-  // Smart Grid Calculator adhering strictly to rules:
-  // 1. Try to make a square with no holes.
-  // 2. Try to make a rectangle closest to square that is wider than tall (cols >= rows) with no holes.
-  // 3. Cap at 5 columns unless item count exceeds 25 (5x5).
-  function applySmartGridColumns() {
-    const n = rawImages.length;
-    if (!n) return;
+  // Pure Math Calculation for Best Smart Grid Layout
+  // Rule 1: Zero-hole square preference.
+  // Rule 2: Wider-than-tall (cols >= rows) preference.
+  // Rule 3: Cap at 5 columns unless items exceed 25 (5x5).
+  function computeOptimalColumns(itemCount) {
+    if (!itemCount || itemCount <= 0) return 1;
 
-    const maxAllowedCols = n > 25 ? Math.ceil(Math.sqrt(n)) : Math.min(5, n);
-
+    const maxCols = itemCount > 25 ? Math.ceil(Math.sqrt(itemCount)) : Math.min(5, itemCount);
     let bestCols = 1;
     let lowestPenalty = Infinity;
 
-    for (let cols = 1; cols <= maxAllowedCols; cols++) {
-      const rows = Math.ceil(n / cols);
-      const holes = (rows * cols) - n;
+    for (let cols = 1; cols <= maxCols; cols++) {
+      const rows = Math.ceil(itemCount / cols);
+      const holes = (rows * cols) - itemCount;
       const isWiderOrEqual = cols >= rows;
 
-      // Heavy penalty for tall layouts (cols < rows)
       const orientationPenalty = isWiderOrEqual ? 0 : 50;
-
-      // Ratio difference from 1:1 square
-      const ratio = cols / rows;
-      const squarenessDiff = Math.abs(ratio - 1.0);
-
-      // Penalty for empty grid slots
+      const squarenessDiff = Math.abs((cols / rows) - 1.0);
       const holePenalty = holes * 10;
 
       const penalty = orientationPenalty + (squarenessDiff * 20) + holePenalty;
@@ -504,12 +493,26 @@
         bestCols = cols;
       }
     }
+    return bestCols;
+  }
 
-    // Assign directly to existing DOM option
-    gridCols.value = String(bestCols);
-    if (!gridCols.value) {
-      gridCols.value = "3"; // Fallback to option 3 if value match fails
+  // Rebuild Dropdown ONLY after photo data is loaded
+  function syncColumnDropdown(itemCount, selectedCols) {
+    if (!itemCount) return;
+
+    gridCols.innerHTML = '';
+    const maxOption = Math.max(5, itemCount);
+
+    for (let c = 1; c <= maxOption; c++) {
+      const opt = document.createElement('option');
+      opt.value = String(c);
+      opt.textContent = `${c} Column${c > 1 ? 's' : ''}`;
+      if (c === selectedCols) opt.selected = true;
+      gridCols.appendChild(opt);
     }
+
+    gridCols.disabled = false;
+    gridColsGroup.classList.remove('disabled');
   }
 
   function updateUI() {
@@ -517,7 +520,7 @@
     gridColsGroup.classList.toggle('disabled', layoutType.value !== 'grid');
   }
 
-  // File Upload Handler
+  // File Upload Handler (Data First -> Math Second -> UI Render Third)
   imgInput.addEventListener('change', async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
@@ -535,7 +538,11 @@
       transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
       selectedIdx = 0;
 
-      applySmartGridColumns();
+      // Calculate Math pure values
+      activeCols = computeOptimalColumns(rawImages.length);
+      
+      // Update UI Controls
+      syncColumnDropdown(rawImages.length, activeCols);
       extractSortedPalette(rawImages);
       
       paletteGroup.classList.remove('disabled');
@@ -548,6 +555,14 @@
       requestRender();
     } catch (err) {
       console.error('Error loading uploaded photos:', err);
+    }
+  });
+
+  gridCols.addEventListener('change', (e) => {
+    const val = parseInt(e.target.value, 10);
+    if (!isNaN(val) && val > 0) {
+      activeCols = val;
+      requestRender();
     }
   });
 
@@ -586,7 +601,7 @@
   }
 
   // Fast Feedback Live Listeners
-  [innerSpacing, outerSpacing, layoutType, gridCols, maskMode, maskBehavior, cornerRadius].forEach(el => {
+  [innerSpacing, outerSpacing, layoutType, maskMode, maskBehavior, cornerRadius].forEach(el => {
     el.addEventListener('input', () => {
       if (el === innerSpacing) innerSpacingVal.textContent = `${innerSpacing.value}px`;
       if (el === outerSpacing) outerSpacingVal.textContent = `${outerSpacing.value}px`;
@@ -619,7 +634,7 @@
     };
   }
 
-  // Main Canvas Render Engine
+  // Main Canvas Render Engine (Uses pure state variable activeCols)
   function renderCollage() {
     if (!rawImages.length) return;
 
@@ -627,9 +642,8 @@
     const b = parseInt(outerSpacing.value, 10) || 0;
     const layout = layoutType.value;
     
-    // GUARANTEED FALLBACK: If gridCols.value is NaN or empty, default strictly to 3
-    let parsedCols = parseInt(gridCols.value, 10);
-    const cols = (isNaN(parsedCols) || parsedCols < 1) ? Math.min(3, rawImages.length) : parsedCols;
+    // Strict numeric guarantees driven by activeCols state
+    const cols = Math.max(1, activeCols || 1);
     const rows = Math.max(1, Math.ceil(rawImages.length / cols));
     
     const mask = maskMode.value;
