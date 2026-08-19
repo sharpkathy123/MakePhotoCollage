@@ -375,14 +375,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span>2026-08-18 17:42</span>
+    Updated: <span>2026-08-18 17:48</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608181742').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608181748').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -467,8 +467,7 @@
     requestRender();
   }
 
-  // Dynamic Smart Grid Column Calculator
-  // Zero-hole optimization, favoring square aspect ratios (min difference between rows & cols)
+  // Dynamic Smart Grid Column Calculator with strict DOM synchronization
   function applySmartGridColumns() {
     const n = rawImages.length;
     if (!n) return;
@@ -491,6 +490,11 @@
     }
 
     gridCols.value = String(bestCols);
+    
+    // Explicitly fallback if matching value option is missing
+    if (gridCols.value !== String(bestCols)) {
+      gridCols.value = "3";
+    }
   }
 
   function updateUI() {
@@ -608,8 +612,11 @@
     const b = parseInt(outerSpacing.value, 10) || 0;
     const layout = layoutType.value;
     
-    const cols = parseInt(gridCols.value, 10) || 1;
-    const rows = Math.ceil(rawImages.length / cols) || 1;
+    // Strict parsing with fallback guarantees canvas size math never evaluates to NaN
+    const parsedCols = parseInt(gridCols.value, 10);
+    const cols = Math.max(1, isNaN(parsedCols) ? 1 : parsedCols);
+    const rows = Math.max(1, Math.ceil(rawImages.length / cols));
+    
     const mask = maskMode.value;
     const behavior = maskBehavior.value;
     const r = parseInt(cornerRadius.value, 10) || 0;
