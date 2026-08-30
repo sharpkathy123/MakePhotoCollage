@@ -259,6 +259,22 @@
       margin-top: 16px;
       user-select: none;
     }
+
+    .photo-source-row {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    .photo-source-row input[type="file"] {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .photo-source-row .btn-secondary {
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -268,7 +284,10 @@
 
   <div class="control">
     <label for="imgInput">1. Select Photos</label>
-    <input type="file" id="imgInput" accept="image/*" multiple>
+    <div class="photo-source-row">
+      <input type="file" id="imgInput" accept="image/*" multiple>
+      <button class="btn-secondary" type="button" id="gphotosImportBtn" onclick="importFromGooglePhotos()">📷 Google Photos</button>
+    </div>
   </div>
 
   <div id="canvas-container">
@@ -387,7 +406,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608182158').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608302300').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -395,6 +414,7 @@
 
   // DOM Elements
   const imgInput = document.getElementById('imgInput');
+  const gphotosImportBtn = document.getElementById('gphotosImportBtn');
   const innerSpacing = document.getElementById('innerSpacing');
   const outerSpacing = document.getElementById('outerSpacing');
   const innerSpacingVal = document.getElementById('innerSpacingVal');
@@ -533,13 +553,42 @@
     gridColsGroup.classList.toggle('disabled', !isGrid || !rawImages.length);
   }
 
+  // Shared handling for any newly-loaded set of Image elements, regardless of source
+  function applyNewImageSet(newImages, { append = false } = {}) {
+    if (!newImages.length) return;
+
+    if (append && rawImages.length) {
+      rawImages = rawImages.concat(newImages);
+      transforms = transforms.concat(newImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 })));
+      selectedIndices = [rawImages.length - newImages.length];
+    } else {
+      rawImages = newImages;
+      transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
+      selectedIndices = [0];
+    }
+
+    activeCols = computeOptimalColumns(rawImages.length);
+
+    syncColumnDropdown(rawImages.length, activeCols);
+    extractSortedPalette(rawImages);
+
+    paletteGroup.classList.remove('disabled');
+    touchHint.style.display = 'block';
+    photoControls.style.display = 'block';
+    saveBtn.disabled = false;
+
+    updateUI();
+    syncSliderControls();
+    requestRender();
+  }
+
   // File Upload Handler
   imgInput.addEventListener('change', async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
 
     try {
-      rawImages = await Promise.all(files.map(file => {
+      const images = await Promise.all(files.map(file => {
         return new Promise((resolve, reject) => {
           const img = new Image();
           img.onload = () => resolve(img);
@@ -547,27 +596,174 @@
           img.src = URL.createObjectURL(file);
         });
       }));
-
-      transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
-      selectedIndices = [0];
-
-      activeCols = computeOptimalColumns(rawImages.length);
-      
-      syncColumnDropdown(rawImages.length, activeCols);
-      extractSortedPalette(rawImages);
-      
-      paletteGroup.classList.remove('disabled');
-      touchHint.style.display = 'block';
-      photoControls.style.display = 'block';
-      saveBtn.disabled = false;
-      
-      updateUI();
-      syncSliderControls();
-      requestRender();
+      applyNewImageSet(images, { append: false });
     } catch (err) {
       console.error('Error loading uploaded photos:', err);
     }
   });
+
+  // --- Google Photos Import (via Google's official Photos Picker API) ---
+  // Photos are fetched directly from Google by the browser using the user's
+  // own OAuth token; nothing passes through any third-party server.
+  const GPHOTOS_SCOPE = 'https://www.googleapis.com/auth/photospicker.mediaitems.readonly';
+  let gphotosTokenClient = null;
+  let gphotosAccessToken = null;
+
+  function getGooglePhotosClientId() {
+    let id = localStorage.getItem('gphotosClientId');
+    if (!id) {
+      id = prompt(
+        'To import from Google Photos, paste your Google OAuth 2.0 Client ID.\n\n' +
+        'You need to create your own free one in Google Cloud Console (enable the ' +
+        '"Google Photos Picker API" and add this page\'s address as an Authorized ' +
+        'JavaScript origin). See the README for step-by-step instructions.\n\n' +
+        'It will be saved only on this device.'
+      );
+      if (id) {
+        id = id.trim();
+        localStorage.setItem('gphotosClientId', id);
+      }
+    }
+    return id || null;
+  }
+
+  function ensureGoogleIdentityLoaded() {
+    return new Promise((resolve, reject) => {
+      if (window.google && window.google.accounts && window.google.accounts.oauth2) {
+        resolve();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load Google Sign-In. Check your internet connection.'));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function requestGooglePhotosAccessToken(clientId) {
+    await ensureGoogleIdentityLoaded();
+    return new Promise((resolve, reject) => {
+      if (!gphotosTokenClient || gphotosTokenClient.clientId !== clientId) {
+        gphotosTokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: GPHOTOS_SCOPE,
+          callback: (resp) => {
+            if (resp.error) { reject(new Error(resp.error)); return; }
+            gphotosAccessToken = resp.access_token;
+            resolve(resp.access_token);
+          },
+          error_callback: (err) => reject(new Error(err.type || 'Google sign-in was cancelled')),
+        });
+        gphotosTokenClient.clientId = clientId;
+      }
+      gphotosTokenClient.requestAccessToken({ prompt: gphotosAccessToken ? '' : 'consent' });
+    });
+  }
+
+  function parseApiDuration(durationStr) {
+    const match = /^(\d+(?:\.\d+)?)s$/.exec(durationStr || '');
+    return match ? parseFloat(match[1]) * 1000 : null;
+  }
+
+  async function createPickerSession(accessToken) {
+    const res = await fetch('https://photospicker.googleapis.com/v1/sessions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!res.ok) throw new Error('Could not start a Google Photos picker session.');
+    return res.json();
+  }
+
+  async function pollPickerSession(sessionId, accessToken, pollIntervalMs, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const res = await fetch(`https://photospicker.googleapis.com/v1/sessions/${sessionId}`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      if (!res.ok) throw new Error('Lost connection to the Google Photos picker.');
+      const session = await res.json();
+      if (session.mediaItemsSet) return session;
+      await new Promise(r => setTimeout(r, pollIntervalMs));
+    }
+    throw new Error('Timed out waiting for a photo selection in Google Photos.');
+  }
+
+  async function listPickedMediaItems(sessionId, accessToken) {
+    const items = [];
+    let pageToken = '';
+    do {
+      const url = new URL('https://photospicker.googleapis.com/v1/mediaItems');
+      url.searchParams.set('sessionId', sessionId);
+      url.searchParams.set('pageSize', '100');
+      if (pageToken) url.searchParams.set('pageToken', pageToken);
+      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+      if (!res.ok) throw new Error('Could not list the photos picked in Google Photos.');
+      const data = await res.json();
+      items.push(...(data.mediaItems || []));
+      pageToken = data.nextPageToken || '';
+    } while (pageToken);
+    return items;
+  }
+
+  function fetchPickedImage(item, accessToken) {
+    return fetch(`${item.mediaFile.baseUrl}=d`, { headers: { 'Authorization': `Bearer ${accessToken}` } })
+      .then(res => {
+        if (!res.ok) throw new Error(`Could not download "${item.mediaFile.filename}" from Google Photos.`);
+        return res.blob();
+      })
+      .then(blob => new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`Failed to decode "${item.mediaFile.filename}".`));
+        img.src = URL.createObjectURL(blob);
+      }));
+  }
+
+  async function importFromGooglePhotos() {
+    const clientId = getGooglePhotosClientId();
+    if (!clientId) return;
+
+    const originalLabel = gphotosImportBtn.textContent;
+    gphotosImportBtn.disabled = true;
+
+    try {
+      gphotosImportBtn.textContent = 'Connecting…';
+      const accessToken = await requestGooglePhotosAccessToken(clientId);
+
+      const session = await createPickerSession(accessToken);
+      window.open(session.pickerUri, '_blank', 'noopener');
+
+      gphotosImportBtn.textContent = 'Waiting for picker…';
+      const pollInterval = parseApiDuration(session.pollingConfig && session.pollingConfig.pollInterval) || 2000;
+      const timeout = parseApiDuration(session.pollingConfig && session.pollingConfig.timeoutIn) || 5 * 60 * 1000;
+      const finishedSession = await pollPickerSession(session.id, accessToken, pollInterval, timeout);
+
+      const mediaItems = await listPickedMediaItems(finishedSession.id, accessToken);
+      if (!mediaItems.length) return;
+
+      const images = [];
+      for (let i = 0; i < mediaItems.length; i++) {
+        gphotosImportBtn.textContent = `Downloading ${i + 1}/${mediaItems.length}…`;
+        images.push(await fetchPickedImage(mediaItems[i], accessToken));
+      }
+
+      fetch(`https://photospicker.googleapis.com/v1/sessions/${finishedSession.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      }).catch(() => {});
+
+      applyNewImageSet(images, { append: true });
+    } catch (err) {
+      console.error('Google Photos import failed:', err);
+      alert(err.message || 'Could not import photos from Google Photos.');
+    } finally {
+      gphotosImportBtn.disabled = false;
+      gphotosImportBtn.textContent = originalLabel;
+    }
+  }
 
   layoutType.addEventListener('change', () => {
     updateUI();
