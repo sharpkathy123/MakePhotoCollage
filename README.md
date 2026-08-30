@@ -22,6 +22,23 @@ Create beautiful photo collages right on your phone or computer. It’s complete
 
 ---
 
+## 🖼️ Importing Photos from Google Photos
+
+Besides picking photos from your device, you can import them directly from **Google Photos**. Because this app has no server of its own, connecting Google Photos requires a free Google OAuth Client ID that *you* create and control — your photos are fetched straight from Google to your browser and never touch any third-party server.
+
+**One-time setup:**
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and create (or pick) a project.
+2. Under **APIs & Services → Library**, enable the **Google Photos Picker API**.
+3. Under **APIs & Services → OAuth consent screen**, configure a consent screen (External is fine; add yourself as a test user if it's in Testing mode).
+4. Under **APIs & Services → Credentials**, create an **OAuth client ID** of type **Web application**.
+   * Add `https://sharpkathy123.github.io` as an **Authorized JavaScript origin** (add `http://localhost` too if you run the app locally).
+5. Copy the generated **Client ID**.
+6. In the app, tap **📷 Google Photos** and paste the Client ID when prompted. It's saved only on your device (`localStorage`), so you only need to do this once per device/browser.
+
+After that, tapping **📷 Google Photos** opens Google's photo picker in a new tab — pick photos there, come back, and they're added to your collage.
+
+---
+
 ## 📲 How to Install on Your Phone
 
 You don't need an App Store to download this! Just follow these quick steps:
