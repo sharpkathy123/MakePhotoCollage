@@ -34,6 +34,7 @@ test.describe('Per-photo masks', () => {
     // scaling only overshoots the cell in an axis where the source aspect
     // ratio doesn't already match the (square) cell.
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait, FIXTURES.greenSquare, FIXTURES.yellowSquare]);
+    await page.click('button:text("Deselect All")'); // avoid the selection outline overlapping the edge samples below
     await page.evaluate(() => {
       photoMasks[0].mode = 'square';
       requestRender();
@@ -58,6 +59,7 @@ test.describe('Per-photo masks', () => {
   test('circle mask also crops exactly to its cell (regression guard alongside the square-mask fix)', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await page.click('button:text("Deselect All")'); // avoid the selection outline overlapping the edge samples below
     await page.evaluate(() => {
       photoMasks[0].mode = 'circle';
       requestRender();

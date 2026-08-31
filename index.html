@@ -417,7 +417,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608312400').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609010000').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -1001,8 +1001,8 @@
   }
 
   // Pure Aspect-Aware Render Engine.
-  // `showEditingOverlays` draws the numbered badges and drag-selection
-  // outline — on-screen editing aids only, left out of the saved/shared image.
+  // `showEditingOverlays` draws the selection outline — an on-screen
+  // editing aid only, left out of the saved/shared image.
   function renderCollage(showEditingOverlays) {
     if (!rawImages.length) return;
 
@@ -1171,27 +1171,18 @@
       ctx.restore();
 
       if (showEditingOverlays) {
-        // Blue Selection Box ONLY while dragging/moving
-        if (isDragging && selectedIndices.includes(idx)) {
+        // Selection outline for any currently-selected photo, not just
+        // while actively dragging — replaces the old numbered badge, which
+        // stayed pinned to the cell's corner instead of following the
+        // photo, so it could end up labeling empty background or a
+        // different photo once you moved things around.
+        if (selectedIndices.includes(idx)) {
           ctx.save();
           ctx.strokeStyle = '#007aff';
           ctx.lineWidth = Math.max(4, Math.round(Math.min(cellW, cellH) * 0.015));
           ctx.strokeRect(cellX, cellY, cellW, cellH);
           ctx.restore();
         }
-
-        // Number Badge
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(cellX + 22, cellY + 22, 14, 0, 2 * Math.PI);
-        ctx.fillStyle = selectedIndices.includes(idx) ? '#007aff' : 'rgba(0, 0, 0, 0.6)';
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 13px -apple-system, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(idx + 1, cellX + 22, cellY + 22);
-        ctx.restore();
       }
     });
   }
