@@ -294,6 +294,7 @@
       <input type="file" id="imgInput" accept="image/*" multiple>
       <button class="btn-secondary" type="button" id="gphotosImportBtn" onclick="importFromGooglePhotos()">📷 Google Photos</button>
     </div>
+    <div style="font-size:0.7rem; color:#8e8e93; margin-top:4px;">Google Photos import only works for accounts approved in the README's setup steps — not submitted for Google's public review.</div>
     <button class="btn-secondary" type="button" id="gphotosOpenPickerBtn" onclick="openGooglePhotosPickerTab()" style="display:none; width:100%; margin-top:6px;">🔗 Tap to Open Google Photos</button>
   </div>
 
@@ -413,7 +414,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608312000').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608312300').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -646,6 +647,9 @@
         'You need to create your own free one in Google Cloud Console (enable the ' +
         '"Google Photos Picker API" and add this page\'s address as an Authorized ' +
         'JavaScript origin). See the README for step-by-step instructions.\n\n' +
+        'Note: this only works for Google accounts explicitly added as test users ' +
+        'in that Cloud project (this app isn\'t submitted for Google\'s verification ' +
+        'review, so it never will work for anyone else). See the README to add more.\n\n' +
         'It will be saved only on this device.'
       );
       if (id) {
