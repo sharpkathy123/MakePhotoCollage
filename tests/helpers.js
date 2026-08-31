@@ -8,12 +8,15 @@ const FIXTURES = {
 };
 
 // Loads the given fixture files into the app via the file input and waits
-// for the first render to settle.
+// for the render to settle. Selecting files appends to whatever is already
+// loaded (mirrors the real file input's behavior), so this waits for the
+// count to grow by fixturePaths.length rather than assuming a fresh start.
 async function loadPhotos(page, fixturePaths) {
+  const before = await page.evaluate(() => (typeof rawImages !== 'undefined' ? rawImages.length : 0));
   await page.setInputFiles('#imgInput', fixturePaths);
   await page.waitForFunction(
     (n) => typeof rawImages !== 'undefined' && rawImages.length === n,
-    fixturePaths.length
+    before + fixturePaths.length
   );
 }
 
