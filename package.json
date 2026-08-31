@@ -1,0 +1,12 @@
+{
+  "name": "makephotocollage",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Regression tests for the Grid Collage Generator static app",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1"
+  }
+}
