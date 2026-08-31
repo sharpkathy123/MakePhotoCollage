@@ -153,4 +153,27 @@ test.describe('Per-photo masks', () => {
     expect(behaviors[0]).toBe('fixed');
     expect(behaviors[1]).toBe('fixed');
   });
+
+  // Regression guard: the hidden, disabled "Mixed" placeholder option used
+  // to linger in the dropdown's DOM after a bulk apply resolved the
+  // selection back to one shared value -- it only got cleaned up on the
+  // *next* selection change, not immediately. Harmless to the applied value,
+  // but stale DOM state left sitting in a native <select> is exactly the
+  // kind of thing that invites picker-sync bugs, so it should never survive
+  // past the change that made it stale.
+  test('the "Mixed" placeholder option is removed immediately once a bulk apply makes the selection uniform again', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+
+    await page.evaluate(() => {
+      photoMasks[0].mode = 'circle';
+      photoMasks[1].mode = 'ellipse';
+      selectedIndices = [0, 1];
+      syncSliderControls();
+    });
+    expect(await page.evaluate(() => document.querySelectorAll('#maskMode option[data-mixed]').length)).toBe(1);
+
+    await page.selectOption('#maskMode', 'square');
+    expect(await page.evaluate(() => document.querySelectorAll('#maskMode option[data-mixed]').length)).toBe(0);
+  });
 });

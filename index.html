@@ -418,7 +418,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609010600').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609010700').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -948,7 +948,7 @@
     let mixedOption = selectEl.querySelector('option[data-mixed]');
     if (allSame) {
       if (mixedOption) mixedOption.remove();
-      selectEl.value = values[0];
+      selectOptionByValue(selectEl, values[0]);
     } else {
       if (!mixedOption) {
         mixedOption = document.createElement('option');
@@ -959,8 +959,23 @@
         mixedOption.textContent = 'Mixed';
         selectEl.insertBefore(mixedOption, selectEl.firstChild);
       }
-      selectEl.value = '__mixed__';
+      selectOptionByValue(selectEl, '__mixed__');
     }
+  }
+
+  // Sets which <option> is selected by flipping each option's own `selected`
+  // property, instead of the `selectEl.value = ...` shorthand. iOS Safari's
+  // native picker popup can keep showing a checkmark on whichever option a
+  // person last *tapped* even after `.value` is reassigned by script, so a
+  // photo selected right after a script-driven change could show the wrong
+  // option checked -- and tapping the option that already displays a
+  // checkmark is a no-op as far as the picker is concerned, so no `change`
+  // event fires and nothing gets applied. Explicitly touching every option's
+  // `selected` state is the standard workaround for that desync.
+  function selectOptionByValue(selectEl, value) {
+    Array.from(selectEl.options).forEach(opt => {
+      opt.selected = (opt.value === value);
+    });
   }
 
   function syncSliderControls() {
@@ -1023,6 +1038,11 @@
     selectedIndices.forEach(idx => {
       if (photoMasks[idx]) photoMasks[idx].mode = maskMode.value;
     });
+    // The whole selection now shares one value, so any leftover "Mixed"
+    // placeholder option is stale -- drop it rather than waiting for the
+    // next selection change to clean it up.
+    const stillMixed = maskMode.querySelector('option[data-mixed]');
+    if (stillMixed) stillMixed.remove();
     requestRender();
   });
 
@@ -1030,6 +1050,8 @@
     selectedIndices.forEach(idx => {
       if (photoMasks[idx]) photoMasks[idx].behavior = maskBehavior.value;
     });
+    const stillMixed = maskBehavior.querySelector('option[data-mixed]');
+    if (stillMixed) stillMixed.remove();
     requestRender();
   });
 
