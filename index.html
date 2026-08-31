@@ -407,7 +407,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608311400').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608311600').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -915,7 +915,7 @@
 
   function requestRender() {
     if (animFrameId) cancelAnimationFrame(animFrameId);
-    animFrameId = requestAnimationFrame(renderCollage);
+    animFrameId = requestAnimationFrame(() => renderCollage(true));
   }
 
   function calculateImageDimensions(imgWidth, imgHeight, maxW, maxH, mode = 'fit') {
@@ -930,8 +930,10 @@
     };
   }
 
-  // Pure Aspect-Aware Render Engine
-  function renderCollage() {
+  // Pure Aspect-Aware Render Engine.
+  // `showEditingOverlays` draws the numbered badges and drag-selection
+  // outline — on-screen editing aids only, left out of the saved/shared image.
+  function renderCollage(showEditingOverlays) {
     if (!rawImages.length) return;
 
     const s = parseInt(innerSpacing.value, 10) || 0;
@@ -1066,27 +1068,29 @@
 
       ctx.restore();
 
-      // Draw Blue Selection Box ONLY while dragging/moving
-      if (isDragging && selectedIndices.includes(idx)) {
+      if (showEditingOverlays) {
+        // Blue Selection Box ONLY while dragging/moving
+        if (isDragging && selectedIndices.includes(idx)) {
+          ctx.save();
+          ctx.strokeStyle = '#007aff';
+          ctx.lineWidth = Math.max(4, Math.round(Math.min(cellW, cellH) * 0.015));
+          ctx.strokeRect(cellX, cellY, cellW, cellH);
+          ctx.restore();
+        }
+
+        // Number Badge
         ctx.save();
-        ctx.strokeStyle = '#007aff';
-        ctx.lineWidth = Math.max(4, Math.round(Math.min(cellW, cellH) * 0.015));
-        ctx.strokeRect(cellX, cellY, cellW, cellH);
+        ctx.beginPath();
+        ctx.arc(cellX + 22, cellY + 22, 14, 0, 2 * Math.PI);
+        ctx.fillStyle = selectedIndices.includes(idx) ? '#007aff' : 'rgba(0, 0, 0, 0.6)';
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 13px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(idx + 1, cellX + 22, cellY + 22);
         ctx.restore();
       }
-
-      // Always Draw Number Badge
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cellX + 22, cellY + 22, 14, 0, 2 * Math.PI);
-      ctx.fillStyle = selectedIndices.includes(idx) ? '#007aff' : 'rgba(0, 0, 0, 0.6)';
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 13px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(idx + 1, cellX + 22, cellY + 22);
-      ctx.restore();
     });
   }
 
@@ -1290,6 +1294,9 @@
 
   // Native Share / Save
   saveBtn.addEventListener('click', () => {
+    // Redraw without the on-screen editing badges/outline before capturing,
+    // so the exported image is clean, then restore the normal editing view.
+    renderCollage(false);
     canvas.toBlob(async (blob) => {
       const fileName = `grid-collage-${Date.now()}.png`;
       const file = new File([blob], fileName, { type: 'image/png' });
@@ -1304,6 +1311,7 @@
         fallbackDownload(blob, fileName);
       }
     }, 'image/png');
+    requestRender();
   });
 
   function fallbackDownload(blob, fileName) {
