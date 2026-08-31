@@ -59,13 +59,13 @@ test.describe('Service worker updates', () => {
       let page = await context.newPage();
       await page.goto(`http://localhost:${port}/index.html`);
       await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 10_000 });
-      const v1Marker = await page.locator('#updateTimestamp').getAttribute('data-updated-utc');
+      const v1Content = await page.content();
       await page.close();
 
-      // "Deploy 2": a genuinely new release -- bumped cache version (as
-      // every real deploy here does) and a changed timestamp marker.
+      // "Deploy 2": a genuinely new release -- bumped cache version, as
+      // every real deploy here does. Used below purely as a marker to tell
+      // which deploy's content got served on the next load.
       let html = fs.readFileSync(path.join(tmpDir, 'index.html'), 'utf8');
-      html = html.replace(/data-updated-utc="[^"]*"/, 'data-updated-utc="2099-01-01T00:00:00Z"');
       html = html.replace(/sw\.js\?v=\d+/, 'sw.js?v=999999999999');
       fs.writeFileSync(path.join(tmpDir, 'index.html'), html);
 
@@ -79,11 +79,11 @@ test.describe('Service worker updates', () => {
       page = await context.newPage();
       await page.goto(`http://localhost:${port}/index.html`);
       await page.waitForTimeout(300);
-      const v2Marker = await page.locator('#updateTimestamp').getAttribute('data-updated-utc');
+      const v2Content = await page.content();
       await page.close();
 
-      expect(v1Marker).not.toBe('2099-01-01T00:00:00Z');
-      expect(v2Marker).toBe('2099-01-01T00:00:00Z');
+      expect(v1Content).not.toContain('sw.js?v=999999999999');
+      expect(v2Content).toContain('sw.js?v=999999999999');
     } finally {
       await browser.close();
       server.close();

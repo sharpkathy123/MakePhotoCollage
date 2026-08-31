@@ -26,33 +26,38 @@ test.describe('PWA basics', () => {
     expect(errors).toEqual([]);
   });
 
-  // Footer timestamp: stamped in UTC by CI, then reformatted client-side
+  // Footer timestamp: fetched live from GitHub's API for the latest commit
+  // on main (not baked into the file by CI), then reformatted client-side
   // into the viewer's own local time. Regression coverage for that
   // conversion, including a date-rollover case (a viewer far enough behind
   // UTC that the local calendar date differs from the UTC one).
-  test('footer timestamp converts the stamped UTC value into the browser\'s local time', async ({ browser }) => {
+  test('footer timestamp converts the fetched commit date into the browser\'s local time', async ({ browser }) => {
     const context = await browser.newContext({ timezoneId: 'America/Los_Angeles' });
     const page = await context.newPage();
-    await page.goto('/index.html');
 
-    await page.evaluate(() => {
-      document.getElementById('updateTimestamp').setAttribute('data-updated-utc', '2026-08-31T03:12:00Z');
+    await page.route('https://api.github.com/repos/sharpkathy123/MakePhotoCollage/commits/main', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ commit: { committer: { date: '2026-08-31T03:12:00Z' } } }),
+      });
     });
-    // Re-run the same conversion the page does on load.
-    const displayed = await page.evaluate(() => {
-      const el = document.getElementById('updateTimestamp');
-      const d = new Date(el.getAttribute('data-updated-utc'));
-      const pad = (n) => String(n).padStart(2, '0');
-      const text = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-      el.textContent = text;
-      return text;
-    });
+
+    await page.goto('/index.html');
 
     // UTC 2026-08-31 03:12 in America/Los_Angeles (UTC-7 in August) is the
     // previous calendar day, 20:12 -- the date-rollover case.
-    expect(displayed).toBe('2026-08-30 20:12');
-    await expect(page.locator('#updateTimestamp')).toHaveText(displayed);
+    await expect(page.locator('#updateTimestamp')).toHaveText('2026-08-30 20:12');
 
     await context.close();
+  });
+
+  test('footer timestamp shows "unavailable" if the commit lookup fails', async ({ page }) => {
+    await page.route('https://api.github.com/repos/sharpkathy123/MakePhotoCollage/commits/main', (route) => {
+      route.fulfill({ status: 500, body: 'server error' });
+    });
+
+    await page.goto('/index.html');
+    await expect(page.locator('#updateTimestamp')).toHaveText('unavailable');
   });
 });
