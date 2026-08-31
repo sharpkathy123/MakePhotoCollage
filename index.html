@@ -417,7 +417,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609010000').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609010100').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -1170,19 +1170,24 @@
 
       ctx.restore();
 
-      if (showEditingOverlays) {
-        // Selection outline for any currently-selected photo, not just
-        // while actively dragging — replaces the old numbered badge, which
-        // stayed pinned to the cell's corner instead of following the
-        // photo, so it could end up labeling empty background or a
-        // different photo once you moved things around.
-        if (selectedIndices.includes(idx)) {
-          ctx.save();
-          ctx.strokeStyle = '#007aff';
-          ctx.lineWidth = Math.max(4, Math.round(Math.min(cellW, cellH) * 0.015));
-          ctx.strokeRect(cellX, cellY, cellW, cellH);
-          ctx.restore();
+      if (showEditingOverlays && selectedIndices.includes(idx)) {
+        // Selection outline traces the mask/frame's own current shape,
+        // position, and rotation — not the cell's fixed bounds — so it
+        // actually moves and turns with the photo in Attached mode instead
+        // of being left behind (the same "doesn't move with the photo"
+        // problem the old numbered badge had).
+        ctx.save();
+        ctx.strokeStyle = '#007aff';
+        ctx.lineWidth = Math.max(4, Math.round(Math.min(maskW, maskH) * 0.015));
+        if (photoMask.behavior === 'fixed') {
+          applyMaskPath(ctx, photoMask.mode, unitCenterX - maskW / 2, unitCenterY - maskH / 2, maskW, maskH, photoMask.radius);
+        } else {
+          ctx.translate(unitCenterX, unitCenterY);
+          ctx.rotate(t.rot * Math.PI / 180);
+          applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
         }
+        ctx.stroke();
+        ctx.restore();
       }
     });
   }
