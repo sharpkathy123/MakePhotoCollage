@@ -450,7 +450,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609011000').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609011100').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -1083,8 +1083,17 @@
       const value = btn.dataset.value;
       selectedIndices.forEach(idx => {
         if (photoMasks[idx]) photoMasks[idx].behavior = value;
+        // Rotation means something different in each mode: in Attached
+        // mode it spins the frame and content together as one rigid unit;
+        // in Fixed mode it spins only the content behind a frame that
+        // stays put. A rotation value carried over from one mode into the
+        // other doesn't produce a look anyone would choose on purpose --
+        // it just leaves the frame and the now-crooked content looking
+        // like they've come apart. Reset it on every switch, either
+        // direction.
+        if (transforms[idx]) transforms[idx].rot = 0;
       });
-      setActiveOption(maskBehaviorGroup, value);
+      syncSliderControls();
       requestRender();
     });
   });

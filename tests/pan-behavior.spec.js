@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos, cellCenter, appPointToViewport } = require('./helpers');
+const { FIXTURES, loadPhotos, cellCenter, appPointToViewport, clickOption } = require('./helpers');
 
 test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
   // Regression test: switching Fixed -> Attached used to reinterpret the
@@ -163,5 +163,37 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     await page.mouse.click(viewportPoint.x, viewportPoint.y);
 
     expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0]);
+  });
+
+  // Regression test: rotation means something different in each mode -- in
+  // Attached mode it spins the frame and content together as one rigid
+  // unit, in Fixed mode it spins only the content behind a frame that
+  // stays put. Carrying a rotation value over from one mode to the other
+  // produced a jarring result: the frame snaps to a different orientation
+  // than the still-rotated content, making the selection outline (which
+  // faithfully traces the actual frame) look "out of sync" with what's
+  // visibly a rotated photo. Switching Mask Pan Behavior now resets
+  // rotation to 0, in either direction.
+  test('switching Mask Pan Behavior resets rotation, in either direction', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await page.click('button:text("Select All")');
+
+    await clickOption(page, '#maskBehaviorGroup', 'attached');
+    await page.fill('#modRotate', '35');
+    await page.dispatchEvent('#modRotate', 'input');
+    expect(await page.evaluate(() => transforms.map((t) => t.rot))).toEqual([35, 35]);
+
+    await clickOption(page, '#maskBehaviorGroup', 'fixed');
+    expect(await page.evaluate(() => transforms.map((t) => t.rot))).toEqual([0, 0]);
+    await expect(page.locator('#rotVal')).toHaveText('0°');
+
+    // And the same in reverse: Fixed -> Attached also resets it.
+    await page.fill('#modRotate', '-50');
+    await page.dispatchEvent('#modRotate', 'input');
+    expect(await page.evaluate(() => transforms.map((t) => t.rot))).toEqual([-50, -50]);
+
+    await clickOption(page, '#maskBehaviorGroup', 'attached');
+    expect(await page.evaluate(() => transforms.map((t) => t.rot))).toEqual([0, 0]);
   });
 });
