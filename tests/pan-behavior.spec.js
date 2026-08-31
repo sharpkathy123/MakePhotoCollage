@@ -61,30 +61,36 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     expect(diffCount).toBe(0);
   });
 
-  test('with rotation, the underlying photo content still aligns between modes (frame orientation is allowed to differ)', async ({ page }) => {
+  // The frame's rotation, position, and how content renders inside it are
+  // now identical in both modes -- Fixed vs. Attached is purely about what
+  // a subsequent drag updates, never about how a given transform renders.
+  // Switching modes with rotation (and pan, and scale) already set must
+  // not change a single pixel.
+  test('switching modes with rotation, pan, and scale all set renders pixel-identically -- the frame no longer differs between modes', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
     await page.evaluate(() => { photoMasks[0].mode = 'circle'; });
 
-    const result = await page.evaluate(() => {
+    const { diffCount, totalPixels } = await page.evaluate(() => {
       photoMasks[0].behavior = 'fixed';
       transforms[0] = { scale: 1.2, rot: 30, x: 0, y: 0, panX: 30, panY: -15 };
       renderCollage(false);
       const c = document.getElementById('collageCanvas');
-      const ctx = c.getContext('2d');
-      const cx = Math.round(cellBounds[0].x + cellBounds[0].w / 2);
-      const cy = Math.round(cellBounds[0].y + cellBounds[0].h / 2 - 30); // off-center, still well inside the circle
-      const fixedPixel = Array.from(ctx.getImageData(cx, cy, 1, 1).data);
+      const before = new Uint8ClampedArray(c.getContext('2d').getImageData(0, 0, c.width, c.height).data);
 
       photoMasks[0].behavior = 'attached';
       renderCollage(false);
-      const attachedPixel = Array.from(ctx.getImageData(cx, cy, 1, 1).data);
+      const after = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
 
-      return { fixedPixel, attachedPixel };
+      let diffCount = 0;
+      for (let i = 0; i < before.length; i += 4) {
+        if (before[i] !== after[i] || before[i + 1] !== after[i + 1] || before[i + 2] !== after[i + 2]) diffCount++;
+      }
+      return { diffCount, totalPixels: before.length / 4 };
     });
 
-    expect(result.attachedPixel).toEqual(result.fixedPixel);
-    expect(result.fixedPixel).toEqual([220, 60, 60, 255]); // sanity check: this is actual photo content, not background
+    expect(totalPixels).toBeGreaterThan(0);
+    expect(diffCount).toBe(0);
   });
 
   test('dragging in Fixed mode updates panX/panY; dragging in Attached mode updates x/y and leaves pan untouched', async ({ page }) => {
@@ -165,16 +171,14 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0]);
   });
 
-  // Regression test: rotation means something different in each mode -- in
-  // Attached mode it spins the frame and content together as one rigid
-  // unit, in Fixed mode it spins only the content behind a frame that
-  // stays put. Carrying a rotation value over from one mode to the other
-  // produced a jarring result: the frame snaps to a different orientation
-  // than the still-rotated content, making the selection outline (which
-  // faithfully traces the actual frame) look "out of sync" with what's
-  // visibly a rotated photo. Switching Mask Pan Behavior now resets
-  // rotation to 0, in either direction.
-  test('switching Mask Pan Behavior resets rotation, in either direction', async ({ page }) => {
+  // Regression test: switching Mask Pan Behavior used to visibly snap the
+  // frame's rotation -- Fixed mode's frame couldn't rotate at all, so
+  // going from a rotated Attached photo to Fixed made the frame jump to
+  // unrotated while the selection outline (which traces the actual frame)
+  // suddenly no longer matched the still-rotated-looking content. Fixed
+  // and Attached now render identically in every respect; switching
+  // between them must never change a transform value or a single pixel.
+  test('switching Mask Pan Behavior does not change rotation (or any transform) or the rendered image, in either direction', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
     await page.click('button:text("Select All")');
@@ -182,18 +186,33 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     await clickOption(page, '#maskBehaviorGroup', 'attached');
     await page.fill('#modRotate', '35');
     await page.dispatchEvent('#modRotate', 'input');
-    expect(await page.evaluate(() => transforms.map((t) => t.rot))).toEqual([35, 35]);
+    const beforeTransforms = await page.evaluate(() => transforms.map((t) => ({ ...t })));
+    // Stash the "before" pixels in a page-side global and diff entirely
+    // inside the page later -- transferring the full ~1.8M-element pixel
+    // array across the CDP boundary (even once, let alone twice) is slow
+    // enough to blow the test timeout.
+    await page.evaluate(() => {
+      const c = document.getElementById('collageCanvas');
+      window.__beforePixels = new Uint8ClampedArray(c.getContext('2d').getImageData(0, 0, c.width, c.height).data);
+    });
 
     await clickOption(page, '#maskBehaviorGroup', 'fixed');
-    expect(await page.evaluate(() => transforms.map((t) => t.rot))).toEqual([0, 0]);
-    await expect(page.locator('#rotVal')).toHaveText('0°');
+    const afterTransforms = await page.evaluate(() => transforms.map((t) => ({ ...t })));
+    const { diffCount, totalPixels } = await page.evaluate(() => {
+      const c = document.getElementById('collageCanvas');
+      const after = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const before = window.__beforePixels;
+      let diffCount = 0;
+      for (let i = 0; i < before.length; i += 4) {
+        if (before[i] !== after[i] || before[i + 1] !== after[i + 1] || before[i + 2] !== after[i + 2]) diffCount++;
+      }
+      return { diffCount, totalPixels: before.length / 4 };
+    });
 
-    // And the same in reverse: Fixed -> Attached also resets it.
-    await page.fill('#modRotate', '-50');
-    await page.dispatchEvent('#modRotate', 'input');
-    expect(await page.evaluate(() => transforms.map((t) => t.rot))).toEqual([-50, -50]);
-
-    await clickOption(page, '#maskBehaviorGroup', 'attached');
-    expect(await page.evaluate(() => transforms.map((t) => t.rot))).toEqual([0, 0]);
+    expect(afterTransforms).toEqual(beforeTransforms);
+    expect(await page.evaluate(() => transforms.map((t) => t.rot))).toEqual([35, 35]);
+    await expect(page.locator('#rotVal')).toHaveText('35°');
+    expect(totalPixels).toBeGreaterThan(0);
+    expect(diffCount).toBe(0);
   });
 });

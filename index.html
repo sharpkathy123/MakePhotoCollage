@@ -450,7 +450,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609011100').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609011200').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -1081,19 +1081,14 @@
   maskBehaviorGroup.querySelectorAll('.option-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const value = btn.dataset.value;
+      // The frame's rotation, position, and how content is rendered are
+      // now identical in both modes -- Fixed vs. Attached only changes
+      // what a subsequent drag updates (applyDragDelta), so switching
+      // between them here never touches transforms at all.
       selectedIndices.forEach(idx => {
         if (photoMasks[idx]) photoMasks[idx].behavior = value;
-        // Rotation means something different in each mode: in Attached
-        // mode it spins the frame and content together as one rigid unit;
-        // in Fixed mode it spins only the content behind a frame that
-        // stays put. A rotation value carried over from one mode into the
-        // other doesn't produce a look anyone would choose on purpose --
-        // it just leaves the frame and the now-crooked content looking
-        // like they've come apart. Reset it on every switch, either
-        // direction.
-        if (transforms[idx]) transforms[idx].rot = 0;
       });
-      syncSliderControls();
+      setActiveOption(maskBehaviorGroup, value);
       requestRender();
     });
   });
@@ -1260,68 +1255,52 @@
 
       ctx.save();
 
-      // The mask/frame always sits at the unit's own position (x, y).
-      // Panning (panX, panY) shifts only the photo content, expressed as a
-      // true screen-space offset in both modes, so switching between Fixed
-      // and Attached never jumps the crop you set up — only who moves in
-      // response to dragging changes: Fixed updates panX/panY (content
-      // slides inside a stationary frame), Attached updates x/y (the whole
-      // framed photo moves together, keeping the same content-vs-frame
-      // offset).
+      // The mask/frame always sits at the unit's own position (x, y) and
+      // always rotates with it, in both Fixed and Attached mode -- the
+      // distinction between them is purely about what dragging updates
+      // (Fixed: panX/panY, content slides behind a frame that still moves
+      // and turns with the unit; Attached: x/y, the whole framed photo
+      // moves together), never about rotation. That keeps the frame's
+      // rendered shape identical regardless of which mode is selected, so
+      // switching between them never visibly snaps the frame.
       const unitCenterX = centerX + t.x;
       const unitCenterY = centerY + t.y;
 
-      if (photoMask.behavior === 'fixed') {
-        // Frame stays unrotated at the unit position; content pans behind
-        // it, then gets its own rotation/scale.
-        applyMaskPath(ctx, photoMask.mode, unitCenterX - maskW / 2, unitCenterY - maskH / 2, maskW, maskH, photoMask.radius);
-        ctx.clip();
+      ctx.translate(unitCenterX, unitCenterY);
+      ctx.rotate(t.rot * Math.PI / 180);
 
-        ctx.translate(unitCenterX + t.panX, unitCenterY + t.panY);
-        ctx.rotate(t.rot * Math.PI / 180);
-        ctx.scale(t.scale, t.scale);
-        ctx.drawImage(img, -fit.w / 2, -fit.h / 2, fit.w, fit.h);
-      } else {
-        // Frame rotates with the unit but keeps a constant size (matching
-        // Fixed mode's cell-based frame) regardless of zoom — only the
-        // content is meant to grow when you zoom, not the frame itself.
-        ctx.translate(unitCenterX, unitCenterY);
-        ctx.rotate(t.rot * Math.PI / 180);
+      applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
+      ctx.clip();
 
-        applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
-        ctx.clip();
-
-        // The pan is re-expressed as a local offset that cancels out the
-        // unit's own rotation/scale, so its on-screen effect matches
-        // exactly what it looked like in Fixed mode.
-        ctx.scale(t.scale, t.scale);
-        ctx.save();
-        const rad = -t.rot * Math.PI / 180;
-        const localPanX = (t.panX * Math.cos(rad) - t.panY * Math.sin(rad)) / t.scale;
-        const localPanY = (t.panX * Math.sin(rad) + t.panY * Math.cos(rad)) / t.scale;
-        ctx.translate(localPanX, localPanY);
-        ctx.drawImage(img, -fit.w / 2, -fit.h / 2, fit.w, fit.h);
-        ctx.restore();
-      }
+      // Panning (panX, panY) shifts only the photo content, expressed as a
+      // true screen-space offset regardless of mode (set directly from
+      // drag movement in applyDragDelta) -- re-expressed here as a local
+      // offset that cancels out the unit's own rotation/scale, so its
+      // on-screen effect is a straightforward screen-space slide rather
+      // than one that spins along with the frame.
+      ctx.scale(t.scale, t.scale);
+      ctx.save();
+      const rad = -t.rot * Math.PI / 180;
+      const localPanX = (t.panX * Math.cos(rad) - t.panY * Math.sin(rad)) / t.scale;
+      const localPanY = (t.panX * Math.sin(rad) + t.panY * Math.cos(rad)) / t.scale;
+      ctx.translate(localPanX, localPanY);
+      ctx.drawImage(img, -fit.w / 2, -fit.h / 2, fit.w, fit.h);
+      ctx.restore();
 
       ctx.restore();
 
       if (showEditingOverlays && selectedIndices.includes(idx)) {
         // Selection outline traces the mask/frame's own current shape,
         // position, and rotation — not the cell's fixed bounds — so it
-        // actually moves and turns with the photo in Attached mode instead
-        // of being left behind (the same "doesn't move with the photo"
-        // problem the old numbered badge had).
+        // actually moves and turns with the photo instead of being left
+        // behind (the same "doesn't move with the photo" problem the old
+        // numbered badge had).
         ctx.save();
         ctx.strokeStyle = '#007aff';
         ctx.lineWidth = Math.max(4, Math.round(Math.min(maskW, maskH) * 0.015));
-        if (photoMask.behavior === 'fixed') {
-          applyMaskPath(ctx, photoMask.mode, unitCenterX - maskW / 2, unitCenterY - maskH / 2, maskW, maskH, photoMask.radius);
-        } else {
-          ctx.translate(unitCenterX, unitCenterY);
-          ctx.rotate(t.rot * Math.PI / 180);
-          applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
-        }
+        ctx.translate(unitCenterX, unitCenterY);
+        ctx.rotate(t.rot * Math.PI / 180);
+        applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
         ctx.stroke();
         ctx.restore();
       }
