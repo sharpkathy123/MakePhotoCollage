@@ -35,7 +35,7 @@ test.describe('Scale / rotation / reset', () => {
     await loadPhotos(page, [FIXTURES.redLandscape]);
 
     await page.evaluate(() => {
-      transforms[0] = { scale: 2.5, rot: 90, x: 40, y: -20, panX: 15, panY: 30 };
+      transforms[0] = { scale: 2.5, rot: 90, x: 40, y: -20, panX: 15, panY: 30, frameScale: 1.8 };
       syncSliderControls();
     });
 
@@ -43,6 +43,6 @@ test.describe('Scale / rotation / reset', () => {
     await page.waitForTimeout(50);
 
     const t = await page.evaluate(() => ({ ...transforms[0] }));
-    expect(t).toEqual({ scale: 1, rot: 0, x: 0, y: 0, panX: 0, panY: 0 });
+    expect(t).toEqual({ scale: 1, rot: 0, x: 0, y: 0, panX: 0, panY: 0, frameScale: 1 });
   });
 });

@@ -450,7 +450,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609011200').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609011300').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -532,12 +532,36 @@
     return { mode: 'none', behavior: 'fixed', radius: 30 };
   }
 
+  function defaultTransform() {
+    return { scale: 1, rot: 0, x: 0, y: 0, panX: 0, panY: 0, frameScale: 1 };
+  }
+
+  // scale and frameScale are two independent knobs, exactly like panX/panY
+  // vs. x/y: `scale` zooms the photo content behind its frame (used in
+  // Fixed mode); `frameScale` grows the frame/mask itself, taking the photo
+  // along with it (used in Attached mode, "mask moves with photo"). Both
+  // are always rendered exactly as stored regardless of mode -- like
+  // rotation, switching modes never changes either one, so it never snaps
+  // the frame; only a subsequent pinch or Scale-slider drag decides which
+  // of the two a given photo's gesture updates.
+  function clampScale(v) {
+    return Math.min(3, Math.max(0.1, parseFloat(v.toFixed(2))));
+  }
+
+  function getGestureScale(t, behavior) {
+    return behavior === 'attached' ? (t.frameScale ?? 1) : t.scale;
+  }
+
+  function setGestureScale(t, behavior, value) {
+    if (behavior === 'attached') t.frameScale = value;
+    else t.scale = value;
+  }
+
   // Gesture State
   let isDragging = false;
   let dragStart = { x: 0, y: 0 };
   let initialTransforms = {};
   let initialPinchDist = null;
-  let initialPinchScale = 1;
   let animFrameId = null;
 
   function setActiveColorTarget(target) {
@@ -635,12 +659,12 @@
 
     if (append && rawImages.length) {
       rawImages = rawImages.concat(newImages);
-      transforms = transforms.concat(newImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0, panX: 0, panY: 0 })));
+      transforms = transforms.concat(newImages.map(() => (defaultTransform())));
       photoMasks = photoMasks.concat(newImages.map(defaultPhotoMask));
       selectedIndices = [rawImages.length - newImages.length];
     } else {
       rawImages = newImages;
-      transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0, panX: 0, panY: 0 }));
+      transforms = rawImages.map(() => (defaultTransform()));
       photoMasks = rawImages.map(defaultPhotoMask);
       selectedIndices = [0];
     }
@@ -1014,13 +1038,14 @@
       return;
     }
     const primaryIdx = selectedIndices[0];
-    const t = transforms[primaryIdx] || { scale: 1, rot: 0 };
-    modScale.value = t.scale;
+    const t = transforms[primaryIdx] || defaultTransform();
+    const m = photoMasks[primaryIdx] || defaultPhotoMask();
+    const gestureScale = getGestureScale(t, m.behavior);
+    modScale.value = gestureScale;
     modRotate.value = t.rot;
-    scaleVal.textContent = parseFloat(t.scale).toFixed(2);
+    scaleVal.textContent = parseFloat(gestureScale).toFixed(2);
     rotVal.textContent = `${t.rot}°`;
 
-    const m = photoMasks[primaryIdx] || defaultPhotoMask();
     const masks = selectedIndices.map(idx => photoMasks[idx] || defaultPhotoMask());
     setActiveOptionOrMixed(maskModeGroup, masks.map(pm => pm.mode));
     setActiveOptionOrMixed(maskBehaviorGroup, masks.map(pm => pm.behavior));
@@ -1039,7 +1064,9 @@
     const scale = parseFloat(modScale.value);
     scaleVal.textContent = scale.toFixed(2);
     selectedIndices.forEach(idx => {
-      if (transforms[idx]) transforms[idx].scale = scale;
+      if (!transforms[idx]) return;
+      const behavior = (photoMasks[idx] || defaultPhotoMask()).behavior;
+      setGestureScale(transforms[idx], behavior, scale);
     });
     requestRender();
   });
@@ -1055,7 +1082,7 @@
 
   function resetSelectedTransform() {
     selectedIndices.forEach(idx => {
-      if (transforms[idx]) transforms[idx] = { scale: 1, rot: 0, x: 0, y: 0, panX: 0, panY: 0 };
+      if (transforms[idx]) transforms[idx] = defaultTransform();
     });
     syncSliderControls();
     requestRender();
@@ -1232,7 +1259,7 @@
 
       cellBounds.push({ idx, x: cellX, y: cellY, w: cellW, h: cellH });
 
-      const t = transforms[idx] || { scale: 1, rot: 0, x: 0, y: 0, panX: 0, panY: 0 };
+      const t = transforms[idx] || defaultTransform();
       const centerX = cellX + cellW / 2;
       const centerY = cellY + cellH / 2;
 
@@ -1257,32 +1284,36 @@
 
       // The mask/frame always sits at the unit's own position (x, y) and
       // always rotates with it, in both Fixed and Attached mode -- the
-      // distinction between them is purely about what dragging updates
-      // (Fixed: panX/panY, content slides behind a frame that still moves
-      // and turns with the unit; Attached: x/y, the whole framed photo
-      // moves together), never about rotation. That keeps the frame's
-      // rendered shape identical regardless of which mode is selected, so
-      // switching between them never visibly snaps the frame.
+      // distinction between them is purely about what a pinch or drag
+      // UPDATES (Fixed: panX/panY and scale, content slides/zooms behind a
+      // frame that still moves and turns with the unit; Attached: x/y and
+      // frameScale, the whole framed photo moves and grows together), never
+      // about how a given set of transform values renders. t.frameScale and
+      // t.scale are therefore always both applied here exactly as stored,
+      // regardless of mode -- so switching modes never visibly snaps the
+      // frame, only a subsequent gesture behaves differently afterward.
       const unitCenterX = centerX + t.x;
       const unitCenterY = centerY + t.y;
 
       ctx.translate(unitCenterX, unitCenterY);
       ctx.rotate(t.rot * Math.PI / 180);
 
+      ctx.scale(t.frameScale, t.frameScale);
       applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
       ctx.clip();
 
       // Panning (panX, panY) shifts only the photo content, expressed as a
       // true screen-space offset regardless of mode (set directly from
       // drag movement in applyDragDelta) -- re-expressed here as a local
-      // offset that cancels out the unit's own rotation/scale, so its
-      // on-screen effect is a straightforward screen-space slide rather
-      // than one that spins along with the frame.
+      // offset that cancels out the unit's own rotation and total scale, so
+      // its on-screen effect is a straightforward screen-space slide rather
+      // than one that spins or grows along with the frame.
       ctx.scale(t.scale, t.scale);
       ctx.save();
       const rad = -t.rot * Math.PI / 180;
-      const localPanX = (t.panX * Math.cos(rad) - t.panY * Math.sin(rad)) / t.scale;
-      const localPanY = (t.panX * Math.sin(rad) + t.panY * Math.cos(rad)) / t.scale;
+      const totalScale = t.frameScale * t.scale;
+      const localPanX = (t.panX * Math.cos(rad) - t.panY * Math.sin(rad)) / totalScale;
+      const localPanY = (t.panX * Math.sin(rad) + t.panY * Math.cos(rad)) / totalScale;
       ctx.translate(localPanX, localPanY);
       ctx.drawImage(img, -fit.w / 2, -fit.h / 2, fit.w, fit.h);
       ctx.restore();
@@ -1291,15 +1322,18 @@
 
       if (showEditingOverlays && selectedIndices.includes(idx)) {
         // Selection outline traces the mask/frame's own current shape,
-        // position, and rotation — not the cell's fixed bounds — so it
-        // actually moves and turns with the photo instead of being left
-        // behind (the same "doesn't move with the photo" problem the old
-        // numbered badge had).
+        // position, rotation, and frameScale — not the cell's fixed bounds
+        // — so it actually moves, turns, and grows with the photo instead
+        // of being left behind (the same "doesn't move with the photo"
+        // problem the old numbered badge had).
         ctx.save();
         ctx.strokeStyle = '#007aff';
-        ctx.lineWidth = Math.max(4, Math.round(Math.min(maskW, maskH) * 0.015));
         ctx.translate(unitCenterX, unitCenterY);
         ctx.rotate(t.rot * Math.PI / 180);
+        ctx.scale(t.frameScale, t.frameScale);
+        // Divide by frameScale so the outline stays a constant on-screen
+        // thickness rather than thickening as the frame grows.
+        ctx.lineWidth = Math.max(4, Math.round(Math.min(maskW, maskH) * 0.015)) / t.frameScale;
         applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
         ctx.stroke();
         ctx.restore();
@@ -1343,10 +1377,18 @@
   function hitTestCell(x, y) {
     for (let i = cellBounds.length - 1; i >= 0; i--) {
       const b = cellBounds[i];
-      const t = transforms[b.idx] || { x: 0, y: 0 };
-      const bx = b.x + t.x;
-      const by = b.y + t.y;
-      if (x >= bx && x <= bx + b.w && y >= by && y <= by + b.h) {
+      const t = transforms[b.idx] || defaultTransform();
+      // The rendered frame grows/shrinks with t.frameScale around its own
+      // center (see renderCollage) -- account for that here too, or a
+      // pinch-zoomed Attached photo becomes untappable at its own visibly
+      // larger/smaller edges, the same class of bug already fixed for
+      // dragging a photo out of its nominal slot.
+      const frameScale = t.frameScale ?? 1;
+      const bw = b.w * frameScale;
+      const bh = b.h * frameScale;
+      const bx = b.x + t.x + (b.w - bw) / 2;
+      const by = b.y + t.y + (b.h - bh) / 2;
+      if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
         return b.idx;
       }
     }
@@ -1401,6 +1443,21 @@
     });
   }
 
+  // Applies a pinch zoom factor to every selected photo, updating frameScale
+  // for photos in Attached mode (the whole framed photo grows together) or
+  // scale for photos in Fixed mode (content zooms behind a stationary
+  // frame) -- the same Fixed/Attached split as applyDragDelta, for pinch
+  // instead of drag.
+  function applyPinchZoom(zoomFactor) {
+    selectedIndices.forEach(idx => {
+      const init = initialTransforms[idx];
+      if (!init || !transforms[idx]) return;
+      const behavior = (photoMasks[idx] || defaultPhotoMask()).behavior;
+      const base = getGestureScale(init, behavior);
+      setGestureScale(transforms[idx], behavior, clampScale(base * zoomFactor));
+    });
+  }
+
   canvas.addEventListener('touchstart', (e) => {
     // Without this, browsers fire a synthetic mousedown/click after a quick
     // tap (for legacy no-touch-listener compatibility), which would run our
@@ -1421,8 +1478,7 @@
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      const primaryIdx = selectedIndices[0];
-      initialPinchScale = transforms[primaryIdx] ? transforms[primaryIdx].scale : 1;
+      captureInitialTransforms();
     }
   }, { passive: false });
 
@@ -1440,10 +1496,7 @@
         e.touches[0].clientY - e.touches[1].clientY
       );
       const zoom = dist / initialPinchDist;
-      const newScale = Math.min(3, Math.max(0.1, parseFloat((initialPinchScale * zoom).toFixed(2))));
-      selectedIndices.forEach(idx => {
-        if (transforms[idx]) transforms[idx].scale = newScale;
-      });
+      applyPinchZoom(zoom);
       syncSliderControls();
       requestRender();
     }

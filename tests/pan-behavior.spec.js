@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos, cellCenter, appPointToViewport, clickOption } = require('./helpers');
+const { FIXTURES, loadPhotos, cellCenter, appPointToViewport, clickOption, samplePixel } = require('./helpers');
 
 test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
   // Regression test: switching Fixed -> Attached used to reinterpret the
@@ -15,7 +15,7 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
 
     const { diffCount, totalPixels } = await page.evaluate(() => {
       photoMasks[0].behavior = 'fixed';
-      transforms[0] = { scale: 1.5, rot: 0, x: 0, y: 0, panX: 40, panY: -25 };
+      transforms[0] = { scale: 1.5, rot: 0, x: 0, y: 0, panX: 40, panY: -25, frameScale: 1 };
       renderCollage(false);
       const c = document.getElementById('collageCanvas');
       const before = new Uint8ClampedArray(c.getContext('2d').getImageData(0, 0, c.width, c.height).data);
@@ -42,7 +42,7 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
 
     const { diffCount } = await page.evaluate(() => {
       photoMasks[0].behavior = 'fixed';
-      transforms[0] = { scale: 1.5, rot: 0, x: 0, y: 0, panX: 0, panY: 0 };
+      transforms[0] = { scale: 1.5, rot: 0, x: 0, y: 0, panX: 0, panY: 0, frameScale: 1 };
       renderCollage(false);
       const c = document.getElementById('collageCanvas');
       const before = new Uint8ClampedArray(c.getContext('2d').getImageData(0, 0, c.width, c.height).data);
@@ -73,7 +73,7 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
 
     const { diffCount, totalPixels } = await page.evaluate(() => {
       photoMasks[0].behavior = 'fixed';
-      transforms[0] = { scale: 1.2, rot: 30, x: 0, y: 0, panX: 30, panY: -15 };
+      transforms[0] = { scale: 1.2, rot: 30, x: 0, y: 0, panX: 30, panY: -15, frameScale: 1 };
       renderCollage(false);
       const c = document.getElementById('collageCanvas');
       const before = new Uint8ClampedArray(c.getContext('2d').getImageData(0, 0, c.width, c.height).data);
@@ -127,6 +127,32 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     expect(afterAttachedDrag.panY).toBe(afterFixedDrag.panY);
     expect(afterAttachedDrag.x).toBeLessThan(-20);
     expect(afterAttachedDrag.y).toBeGreaterThan(40);
+  });
+
+  // Regression test: the Scale slider (and pinch, which routes through the
+  // same setGestureScale helper) must write to the field the CURRENT mode
+  // actually renders -- scale for Fixed, frameScale for Attached -- leaving
+  // the other field untouched, exactly like drag already does for x/y vs.
+  // panX/panY.
+  test('the Scale slider updates scale in Fixed mode and frameScale in Attached mode, leaving the other field untouched', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.evaluate(() => { photoMasks[0].behavior = 'fixed'; });
+
+    await page.fill('#modScale', '1.6');
+    await page.dispatchEvent('#modScale', 'input');
+    await page.waitForTimeout(50);
+    let t = await page.evaluate(() => ({ ...transforms[0] }));
+    expect(t.scale).toBe(1.6);
+    expect(t.frameScale).toBe(1);
+
+    await clickOption(page, '#maskBehaviorGroup', 'attached');
+    await page.fill('#modScale', '2.2');
+    await page.dispatchEvent('#modScale', 'input');
+    await page.waitForTimeout(50);
+    t = await page.evaluate(() => ({ ...transforms[0] }));
+    expect(t.frameScale).toBe(2.2);
+    expect(t.scale).toBe(1.6); // untouched, preserved from the earlier Fixed-mode use
   });
 
   // Regression test: hit-testing used to check taps only against each
@@ -214,5 +240,87 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     await expect(page.locator('#rotVal')).toHaveText('35°');
     expect(totalPixels).toBeGreaterThan(0);
     expect(diffCount).toBe(0);
+  });
+
+  // Regression test: pinching (or dragging the Scale slider) only ever grew
+  // the photo content behind a fixed-size frame -- correct for Fixed mode,
+  // but in Attached mode the mask is supposed to be part of "the photo" and
+  // grow with it, the same way it already moves with it on drag. That's
+  // tracked as a separate field, frameScale, so switching modes never snaps
+  // the frame (see defaultTransform's comment) -- only a subsequent pinch
+  // or Scale-slider drag decides which field it updates. A point just past
+  // the photo's own nominal cell edge should stay background at
+  // frameScale 1, then show photo content once frameScale grows the frame
+  // out to cover it.
+  test('scaling an Attached-mode photo grows the frame/mask itself, not just the content behind it', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.evaluate(() => { photoMasks[0].mode = 'square'; photoMasks[0].behavior = 'attached'; });
+
+    const point = await page.evaluate(() => ({
+      x: Math.round(cellBounds[0].x + cellBounds[0].w + 5),
+      y: Math.round(cellBounds[0].y + cellBounds[0].h / 2),
+    }));
+
+    await page.evaluate(() => { transforms[0].frameScale = 1; renderCollage(false); });
+    const bgColor = await samplePixel(page, point.x, point.y);
+
+    await page.evaluate(() => { transforms[0].frameScale = 1.5; renderCollage(false); });
+    const grownColor = await samplePixel(page, point.x, point.y);
+
+    expect(grownColor).not.toEqual(bgColor);
+  });
+
+  // Companion regression test: the same growth must NOT happen in Fixed
+  // mode, where the frame is a stationary window and only the content
+  // behind it should zoom.
+  test('scaling a Fixed-mode photo does not grow the frame -- only the content behind it', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.evaluate(() => { photoMasks[0].mode = 'square'; photoMasks[0].behavior = 'fixed'; });
+
+    const point = await page.evaluate(() => ({
+      x: Math.round(cellBounds[0].x + cellBounds[0].w + 5),
+      y: Math.round(cellBounds[0].y + cellBounds[0].h / 2),
+    }));
+
+    await page.evaluate(() => { transforms[0].scale = 1; renderCollage(false); });
+    const bgColor = await samplePixel(page, point.x, point.y);
+
+    await page.evaluate(() => { transforms[0].scale = 1.5; renderCollage(false); });
+    const stillBgColor = await samplePixel(page, point.x, point.y);
+
+    expect(stillBgColor).toEqual(bgColor);
+  });
+
+  // Regression test: hit-testing must grow along with the frame in Attached
+  // mode, or a pinch/scale-grown photo becomes untappable at its own new,
+  // visibly larger edge -- the same class of bug already fixed for dragging
+  // a photo out of its nominal slot.
+  test('a scaled-up Attached-mode photo can still be tapped/selected at its new, larger edge', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await page.evaluate(() => {
+      photoMasks[0].behavior = 'attached';
+      transforms[0].frameScale = 1.8;
+      requestRender();
+    });
+    await page.waitForTimeout(100);
+
+    // Select the other photo first, so tapping photo 0 actually proves the
+    // hit-test found it rather than it already being selected.
+    await page.evaluate(() => { selectedIndices = [1]; syncSliderControls(); });
+
+    const point = await page.evaluate(() => ({
+      // Just past photo 0's own nominal right edge -- still inside the gap
+      // before photo 1's cell starts, so this can only be a hit on photo 0's
+      // grown frame, never an accidental hit on photo 1.
+      x: Math.round(cellBounds[0].x + cellBounds[0].w + 5),
+      y: Math.round(cellBounds[0].y + cellBounds[0].h / 2),
+    }));
+    const viewportPoint = await appPointToViewport(page, point.x, point.y);
+    await page.mouse.click(viewportPoint.x, viewportPoint.y);
+
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0]);
   });
 });
