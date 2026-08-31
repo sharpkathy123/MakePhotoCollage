@@ -406,7 +406,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608302300').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608311200').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -729,12 +729,21 @@
     const originalLabel = gphotosImportBtn.textContent;
     gphotosImportBtn.disabled = true;
 
+    // Open the tab synchronously, as a direct response to the click, and
+    // point it at the real picker URL once we have one. Some browsers
+    // (Safari in particular) silently block window.open() once any `await`
+    // has run, so we can't wait until after the token/session calls below.
+    const pickerWindow = window.open('about:blank', '_blank');
+
     try {
       gphotosImportBtn.textContent = 'Connecting…';
       const accessToken = await requestGooglePhotosAccessToken(clientId);
 
       const session = await createPickerSession(accessToken);
-      window.open(session.pickerUri, '_blank', 'noopener');
+      if (!pickerWindow || pickerWindow.closed) {
+        throw new Error('Your browser blocked the Google Photos picker pop-up. Please allow pop-ups for this site and try again.');
+      }
+      pickerWindow.location.href = session.pickerUri;
 
       gphotosImportBtn.textContent = 'Waiting for picker…';
       const pollInterval = parseApiDuration(session.pollingConfig && session.pollingConfig.pollInterval) || 2000;
@@ -759,6 +768,7 @@
     } catch (err) {
       console.error('Google Photos import failed:', err);
       alert(err.message || 'Could not import photos from Google Photos.');
+      if (pickerWindow && !pickerWindow.closed) pickerWindow.close();
     } finally {
       gphotosImportBtn.disabled = false;
       gphotosImportBtn.textContent = originalLabel;
