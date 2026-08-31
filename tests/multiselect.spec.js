@@ -47,6 +47,34 @@ test.describe('Selection', () => {
     expect(await page.evaluate(() => selectedIndices.slice())).toEqual([2]);
   });
 
+  // Regression test: turning on multi-select mode used to silently keep
+  // whatever selection already existed (e.g. from "Select All"). Since a
+  // multi-select tap only toggles membership, the very first tap on one of
+  // those already-selected photos removed it instead of isolating it, so a
+  // bulk edit picked right after landed on every *other* photo -- while the
+  // dropdown showed the newly-picked value, making it look like the tapped
+  // photo had changed when it hadn't.
+  test('turning on multi-select mode clears any existing selection, so tapping one photo isolates just that one', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait, FIXTURES.greenSquare, FIXTURES.yellowSquare]);
+
+    await page.click('button:text("Select All")');
+    await page.selectOption('#maskMode', 'circle');
+    expect(await page.evaluate(() => photoMasks.map((m) => m.mode))).toEqual(['circle', 'circle', 'circle', 'circle']);
+
+    await page.click('#multiSelectToggleBtn');
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([]);
+
+    const c0 = await cellCenter(page, 0);
+    const v0 = await appPointToViewport(page, c0.x, c0.y);
+    await page.mouse.click(v0.x, v0.y);
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0]);
+
+    await page.selectOption('#maskMode', 'ellipse');
+    const modes = await page.evaluate(() => photoMasks.map((m) => m.mode));
+    expect(modes).toEqual(['ellipse', 'circle', 'circle', 'circle']);
+  });
+
   test('multi-select toggle button reflects its own state and shows the hint text', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);

@@ -45,8 +45,13 @@ async function captureCleanExportPixel(page, x, y) {
 
 // Converts app-space (canvas pixel resolution) coordinates to viewport
 // (CSS pixel) coordinates for real mouse/touch input, accounting for the
-// canvas's max-width:100% CSS scaling.
+// canvas's max-width:100% CSS scaling. Scrolls the canvas into view first --
+// unlike page.click(selector), a raw page.mouse.click(x, y) never auto-
+// scrolls, so a canvas sitting below the fold (easy with 4+ photos loaded
+// plus an expanded controls panel) would silently compute coordinates for
+// a click that lands outside the actual viewport and hits nothing.
 async function appPointToViewport(page, x, y) {
+  await page.locator('#collageCanvas').scrollIntoViewIfNeeded();
   const box = await page.$eval('#collageCanvas', (el) => {
     const r = el.getBoundingClientRect();
     return { left: r.left, top: r.top, width: r.width, height: r.height, cw: el.width, ch: el.height };
