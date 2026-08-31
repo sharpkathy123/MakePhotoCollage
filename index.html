@@ -350,6 +350,8 @@
         <button class="btn-secondary" type="button" onclick="selectAllPhotos()">Select All</button>
         <button class="btn-secondary" type="button" onclick="deselectAllPhotos()">Deselect All</button>
         <button class="btn-secondary" type="button" onclick="resetSelectedTransform()">Reset Photo</button>
+        <button class="btn-secondary" type="button" onclick="bringSelectedToFront()">Bring to Front</button>
+        <button class="btn-secondary" type="button" onclick="sendSelectedToBack()">Send to Back</button>
       </div>
     </div>
     <div class="touch-hint" id="multiSelectHint" style="display:none;">🖐 Multi-select on — tap photos to add/remove from selection</div>
@@ -456,7 +458,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609011400').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609011500').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -535,6 +537,12 @@
   let rawImages = [];
   let transforms = [];
   let photoMasks = [];
+  // Back-to-front stacking order, as a permutation of photo indices --
+  // zOrder[0] draws first (bottommost), zOrder[zOrder.length - 1] draws
+  // last (topmost). Kept entirely separate from layout: cellBounds/cellX/
+  // cellY are always computed from a photo's own index regardless of
+  // zOrder, so reordering the stack never moves a photo's grid position.
+  let zOrder = [];
   let selectedIndices = [0];
   let cellBounds = [];
   let activeCols = 3;
@@ -681,14 +689,21 @@
     if (!newImages.length) return;
 
     if (append && rawImages.length) {
+      const firstNewIdx = rawImages.length;
       rawImages = rawImages.concat(newImages);
       transforms = transforms.concat(newImages.map(() => (defaultTransform())));
       photoMasks = photoMasks.concat(newImages.map(defaultPhotoMask));
+      // Newly added photos start on top of the stack, same as they'd already
+      // appear today (a higher index draws later, so a fresh append was
+      // already implicitly "on top" -- this just makes that explicit and
+      // independent of load order once z-order can be rearranged).
+      zOrder = zOrder.concat(newImages.map((_, i) => firstNewIdx + i));
       selectedIndices = [rawImages.length - newImages.length];
     } else {
       rawImages = newImages;
       transforms = rawImages.map(() => (defaultTransform()));
       photoMasks = rawImages.map(defaultPhotoMask);
+      zOrder = rawImages.map((_, i) => i);
       selectedIndices = [0];
     }
 
@@ -717,6 +732,7 @@
     rawImages = [];
     transforms = [];
     photoMasks = [];
+    zOrder = [];
     selectedIndices = [];
     cellBounds = [];
     multiSelectMode = false;
@@ -1111,6 +1127,27 @@
     requestRender();
   }
 
+  // Moves every selected photo (and its frame/border, since they're always
+  // drawn together -- see renderCollage's drawOrder) to one end of the
+  // stack, preserving their existing relative order among themselves. Pure
+  // stacking order: never touches a photo's grid position (cellX/cellY,
+  // computed from its own index regardless of zOrder).
+  function restackSelected(toFront) {
+    if (!selectedIndices.length) return;
+    const selected = selectedIndices.slice().sort((a, b) => zOrder.indexOf(a) - zOrder.indexOf(b));
+    const rest = zOrder.filter(idx => !selected.includes(idx));
+    zOrder = toFront ? rest.concat(selected) : selected.concat(rest);
+    requestRender();
+  }
+
+  function bringSelectedToFront() {
+    restackSelected(true);
+  }
+
+  function sendSelectedToBack() {
+    restackSelected(false);
+  }
+
   // Mask controls apply to whichever photo(s) are currently selected, same
   // pattern as the scale/rotation sliders above. Applying always resolves
   // the selection to one shared value, so the clicked button can be marked
@@ -1265,8 +1302,13 @@
       ctx.fillRect(b, b, totalW, totalH);
     }
 
-    // Position & Draw Image Cells
+    // Position Image Cells. This pass is always in load order (idx 0..N-1),
+    // never in zOrder -- a photo's grid slot is a property of its own
+    // index, and must stay put no matter how its stacking order changes.
+    // It computes and stashes each photo's render geometry, keyed by idx,
+    // for the separate stacking-order draw pass below.
     let runningOffset = 0;
+    const renderGeom = [];
 
     rawImages.forEach((img, idx) => {
       const cellDim = cellLayouts[idx];
@@ -1313,8 +1355,6 @@
       const maskW = fitMode === 'cover' ? cellW : fit.w;
       const maskH = fitMode === 'cover' ? cellH : fit.h;
 
-      ctx.save();
-
       // The mask/frame always sits at the unit's own position (x, y) and
       // always rotates with it, in both Fixed and Attached mode -- the
       // distinction between them is purely about what a pinch or drag
@@ -1325,8 +1365,26 @@
       // t.scale are therefore always both applied here exactly as stored,
       // regardless of mode -- so switching modes never visibly snaps the
       // frame, only a subsequent gesture behaves differently afterward.
-      const unitCenterX = centerX + t.x;
-      const unitCenterY = centerY + t.y;
+      renderGeom[idx] = {
+        img, t, photoMask, fit, maskW, maskH,
+        unitCenterX: centerX + t.x,
+        unitCenterY: centerY + t.y,
+      };
+    });
+
+    // Draw Image Cells, in stacking order (zOrder) rather than load order --
+    // zOrder[0] draws first (bottommost), the last entry draws last (on
+    // top), so a photo's front/back position is independent of its layout
+    // slot. Falls back to load order if zOrder is somehow out of sync
+    // (shouldn't happen in normal use, but keeps rendering robust).
+    const drawOrder = zOrder.length === rawImages.length ? zOrder : rawImages.map((_, i) => i);
+
+    drawOrder.forEach((idx) => {
+      const g = renderGeom[idx];
+      if (!g) return;
+      const { img, t, photoMask, fit, maskW, maskH, unitCenterX, unitCenterY } = g;
+
+      ctx.save();
 
       ctx.translate(unitCenterX, unitCenterY);
       ctx.rotate(t.rot * Math.PI / 180);
@@ -1408,9 +1466,15 @@
   // visible location -- only tapping the now-empty slot it left behind
   // would still "find" it.
   function hitTestCell(x, y) {
-    for (let i = cellBounds.length - 1; i >= 0; i--) {
-      const b = cellBounds[i];
-      const t = transforms[b.idx] || defaultTransform();
+    // Test topmost-drawn first, so an overlapping tap resolves to whichever
+    // photo is actually on top visually -- zOrder's last entry draws last
+    // (see renderCollage), so it's checked first here.
+    const order = zOrder.length === cellBounds.length ? zOrder : cellBounds.map((_, i) => i);
+    for (let zi = order.length - 1; zi >= 0; zi--) {
+      const idx = order[zi];
+      const b = cellBounds[idx];
+      if (!b) continue;
+      const t = transforms[idx] || defaultTransform();
       // The rendered frame grows/shrinks with t.frameScale around its own
       // center (see renderCollage) -- account for that here too, or a
       // pinch-zoomed Attached photo becomes untappable at its own visibly
@@ -1422,7 +1486,7 @@
       const bx = b.x + t.x + (b.w - bw) / 2;
       const by = b.y + t.y + (b.h - bh) / 2;
       if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
-        return b.idx;
+        return idx;
       }
     }
     return -1;
