@@ -1094,13 +1094,21 @@
       const fitMode = (photoMask.mode === 'square' || photoMask.mode === 'circle') ? 'cover' : 'fit';
       const fit = calculateImageDimensions(imgW, imgH, cellW, cellH, fitMode);
 
+      // In cover mode the scaled image (fit.w/fit.h) is deliberately larger
+      // than the cell in one axis, so it can be cropped down to size — the
+      // mask/clip shape must be sized to the cell itself, not the oversized
+      // image, or it doesn't actually crop anything. In fit mode fit.w/fit.h
+      // already fit within the cell, so the mask hugs the image as before.
+      const maskW = fitMode === 'cover' ? cellW : fit.w;
+      const maskH = fitMode === 'cover' ? cellH : fit.h;
+
       ctx.save();
 
       if (photoMask.behavior === 'fixed') {
         // Center mask boundaries precisely around cell center for fixed mode
-        const maskX = centerX - fit.w / 2;
-        const maskY = centerY - fit.h / 2;
-        applyMaskPath(ctx, photoMask.mode, maskX, maskY, fit.w, fit.h, photoMask.radius);
+        const maskX = centerX - maskW / 2;
+        const maskY = centerY - maskH / 2;
+        applyMaskPath(ctx, photoMask.mode, maskX, maskY, maskW, maskH, photoMask.radius);
         ctx.clip();
 
         ctx.translate(centerX + t.x, centerY + t.y);
@@ -1112,7 +1120,7 @@
         ctx.rotate(t.rot * Math.PI / 180);
         ctx.scale(t.scale, t.scale);
 
-        applyMaskPath(ctx, photoMask.mode, -fit.w / 2, -fit.h / 2, fit.w, fit.h, photoMask.radius);
+        applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
         ctx.clip();
 
         ctx.drawImage(img, -fit.w / 2, -fit.h / 2, fit.w, fit.h);
