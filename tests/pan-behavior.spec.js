@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos } = require('./helpers');
+const { FIXTURES, loadPhotos, cellCenter, appPointToViewport } = require('./helpers');
 
 test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
   // Regression test: switching Fixed -> Attached used to reinterpret the
@@ -121,5 +121,47 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     expect(afterAttachedDrag.panY).toBe(afterFixedDrag.panY);
     expect(afterAttachedDrag.x).toBeLessThan(-20);
     expect(afterAttachedDrag.y).toBeGreaterThan(40);
+  });
+
+  // Regression test: hit-testing used to check taps only against each
+  // photo's nominal, undragged grid-slot rectangle. In Attached mode,
+  // dragging moves the frame's actual rendered position away from that
+  // slot (see the render code's unitCenterX/Y = centerX/Y + t.x/t.y
+  // offset) -- so a photo dragged away from its slot became untappable
+  // at its real, visible location; only its now-empty original slot
+  // still registered a hit for it.
+  test('a photo dragged in Attached mode can still be tapped/selected at its new, moved position', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await page.evaluate(() => { photoMasks[0].behavior = 'attached'; });
+
+    // Move photo 0 straight up by just over half its own cell height,
+    // entirely programmatically (this test is about hit-testing the
+    // result, not the drag gesture itself, which is already covered
+    // above). That lands its new center just above both cells (they sit
+    // side by side at the same y-range in this 2-photo horizontal layout),
+    // clearly outside its own nominal cell bounds and nowhere near photo
+    // 1's cell either -- so there's no ambiguity about which cell a hit
+    // should land in.
+    await page.evaluate(() => {
+      transforms[0].x = 0;
+      transforms[0].y = -(Math.floor(cellBounds[0].h / 2) + 5);
+      requestRender();
+    });
+    await page.waitForTimeout(100);
+
+    // Select a different photo first, so photo 0 isn't already selected --
+    // otherwise tapping it wouldn't prove the hit-test itself found it.
+    await page.evaluate(() => { selectedIndices = [1]; syncSliderControls(); });
+
+    const nominalCenter = await cellCenter(page, 0);
+    const draggedCenter = await page.evaluate(
+      ({ x, y }) => ({ x: x + transforms[0].x, y: y + transforms[0].y }),
+      nominalCenter
+    );
+    const viewportPoint = await appPointToViewport(page, draggedCenter.x, draggedCenter.y);
+    await page.mouse.click(viewportPoint.x, viewportPoint.y);
+
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0]);
   });
 });

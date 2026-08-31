@@ -1,5 +1,5 @@
 // Service Worker with Timestamped Cache Key
-const CACHE_NAME = 'grid-collage-cache-2026-09-01-0800';
+const CACHE_NAME = 'grid-collage-cache-2026-09-01-1000';
 
 const ASSETS_TO_CACHE = [
   './',
@@ -30,25 +30,16 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Network first, falling back to cache only when the network is
+// unreachable (offline). This applies to every request, not just page
+// navigation: index.html is what registers the current sw.js?v=... URL, so
+// serving it from cache on ANY fetch -- including the footer's own
+// self-check of index.html's Last-Modified header -- would mean the one
+// signal that tells the browser a newer version exists never gets seen.
+// The cached list here is tiny (just this app's own few files), so there's
+// no real cost to always preferring a fresh network response when online.
 self.addEventListener('fetch', (event) => {
-  // Navigation requests (loading the page itself) go to the network first.
-  // index.html is what registers the current sw.js?v=... URL, so serving it
-  // from cache would mean a new deploy's newer registration URL -- the only
-  // signal that tells the browser a newer service worker exists at all --
-  // never gets seen, and the page would keep re-registering the same stale
-  // service worker forever, on every load, even a hard refresh (a refresh
-  // bypasses the browser's own HTTP cache, but not this fetch handler).
-  // Cache is only a fallback for when the network is unreachable (offline).
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request).catch(() => caches.match(event.request))
-    );
-    return;
-  }
-
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      return cachedResponse || fetch(event.request);
-    })
+    fetch(event.request).catch(() => caches.match(event.request))
   );
 });

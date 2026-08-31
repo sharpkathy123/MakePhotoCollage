@@ -54,4 +54,38 @@ test.describe('Layout & cell sizing', () => {
     const cols = await page.evaluate(() => activeCols);
     expect(cols).toBe(4);
   });
+
+  // Regression test: an Attached-mode photo's x/y is a raw pixel nudge
+  // relative to its own cell. Grid, Horizontal Strip, and Vertical Feed
+  // place cells completely differently, so a nudge that looked right in
+  // one arrangement lands somewhere arbitrary (visibly misaligned) in
+  // another. Switching layout now resets that offset instead of carrying
+  // over a nudge that no longer corresponds to anything.
+  test('switching layout type resets Attached-mode photo position offsets', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await page.evaluate(() => {
+      photoMasks[0].behavior = 'attached';
+      transforms[0].x = 40;
+      transforms[0].y = -60;
+      // A Fixed-mode photo's panX/panY should NOT be touched by this --
+      // panning is relative to the photo's own content, not cell layout,
+      // so it stays meaningful across a layout change.
+      photoMasks[1].behavior = 'fixed';
+      transforms[1].panX = 25;
+      transforms[1].panY = 15;
+    });
+
+    await page.selectOption('#layoutType', 'vertical');
+    await page.waitForFunction(() => layoutType.value === 'vertical');
+
+    const after = await page.evaluate(() => ({
+      t0: { ...transforms[0] },
+      t1: { ...transforms[1] },
+    }));
+    expect(after.t0.x).toBe(0);
+    expect(after.t0.y).toBe(0);
+    expect(after.t1.panX).toBe(25);
+    expect(after.t1.panY).toBe(15);
+  });
 });

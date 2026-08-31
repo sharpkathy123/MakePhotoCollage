@@ -450,29 +450,28 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609010800').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609011000').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
   }
 
-  // The footer timestamp is computed live from the repo's actual commit
-  // history via GitHub's API, rather than being baked into this file by a
-  // separate bot workflow at deploy time. That bot-commit approach only
-  // ever reflected reality when its specific workflow happened to run on a
-  // push to main -- a direct edit through GitHub's web UI, a push to any
-  // other branch, or the workflow ever breaking would all leave it stale
-  // with no way to notice. Asking GitHub directly for the latest commit
-  // means it's always accurate, however the file actually got changed.
+  // The footer timestamp reads the Last-Modified header GitHub Pages sends
+  // back for this very file, rather than being baked into it by a separate
+  // bot workflow at deploy time or looked up from a specific branch by
+  // name. That means it's automatically correct for whatever is actually
+  // being served right now -- main in normal use, or a feature branch
+  // temporarily pointed at by Pages while testing -- with no assumption
+  // about which branch is "the" one, and no separate CI step required.
   (function () {
     const el = document.getElementById('updateTimestamp');
     if (!el) return;
-    fetch('https://api.github.com/repos/sharpkathy123/MakePhotoCollage/commits/main', { cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
-      .then((commit) => {
-        const iso = commit && commit.commit && commit.commit.committer && commit.commit.committer.date;
-        const d = iso && new Date(iso);
-        if (!d || isNaN(d.getTime())) throw new Error('missing commit date');
+    fetch('./index.html', { cache: 'no-store' })
+      .then((res) => (res.ok ? res : Promise.reject(res.status)))
+      .then((res) => {
+        const lastModified = res.headers.get('Last-Modified');
+        const d = lastModified && new Date(lastModified);
+        if (!d || isNaN(d.getTime())) throw new Error('missing Last-Modified header');
         // Converted to each viewer's own local time -- there's no single
         // "local" time for a static site with visitors everywhere.
         const pad = n => String(n).padStart(2, '0');
@@ -936,6 +935,15 @@
   }
 
   layoutType.addEventListener('change', () => {
+    // An Attached-mode photo's x/y is a raw pixel nudge relative to its own
+    // cell -- meaningful within one arrangement, but Grid/Horizontal
+    // Strip/Vertical Feed place cells completely differently, so the same
+    // offset lands somewhere arbitrary (visibly misaligned, cropped, or
+    // overlapping a neighbor) after switching. Reset it on every layout
+    // change rather than carry over a nudge that no longer means anything.
+    // Fixed-mode photos are untouched either way -- their x/y is already
+    // always 0, since dragging them updates panX/panY instead.
+    transforms.forEach(t => { t.x = 0; t.y = 0; });
     updateUI();
     requestRender();
   });
@@ -1336,10 +1344,21 @@
     };
   }
 
+  // cellBounds holds each photo's nominal, undragged grid-slot rectangle.
+  // In Attached mask-behavior mode, dragging moves the frame itself (see
+  // the unitCenterX/Y = centerX/Y + t.x/t.y offset applied when drawing),
+  // so a dragged photo's actual on-screen position can sit well outside
+  // its recorded cell bounds. Hit-testing has to apply that same offset,
+  // or a photo dragged away from its slot becomes untappable at its real,
+  // visible location -- only tapping the now-empty slot it left behind
+  // would still "find" it.
   function hitTestCell(x, y) {
     for (let i = cellBounds.length - 1; i >= 0; i--) {
       const b = cellBounds[i];
-      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+      const t = transforms[b.idx] || { x: 0, y: 0 };
+      const bx = b.x + t.x;
+      const by = b.y + t.y;
+      if (x >= bx && x <= bx + b.w && y >= by && y <= by + b.h) {
         return b.idx;
       }
     }

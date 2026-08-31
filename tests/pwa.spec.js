@@ -26,35 +26,46 @@ test.describe('PWA basics', () => {
     expect(errors).toEqual([]);
   });
 
-  // Footer timestamp: fetched live from GitHub's API for the latest commit
-  // on main (not baked into the file by CI), then reformatted client-side
-  // into the viewer's own local time. Regression coverage for that
-  // conversion, including a date-rollover case (a viewer far enough behind
-  // UTC that the local calendar date differs from the UTC one).
-  test('footer timestamp converts the fetched commit date into the browser\'s local time', async ({ browser }) => {
+  // Footer timestamp: read from the Last-Modified header on a self-fetch of
+  // index.html (not baked into the file by CI, and not looked up by branch
+  // name), then reformatted client-side into the viewer's own local time.
+  // Regression coverage for that conversion, including a date-rollover case
+  // (a viewer far enough behind UTC that the local calendar date differs
+  // from the UTC one). Routes only intercept the app's own fetch() of
+  // index.html (resourceType 'fetch'), not the initial page navigation
+  // (resourceType 'document') -- the real page still has to load normally.
+  test('footer timestamp converts the served file\'s Last-Modified header into the browser\'s local time', async ({ browser }) => {
     const context = await browser.newContext({ timezoneId: 'America/Los_Angeles' });
     const page = await context.newPage();
 
-    await page.route('https://api.github.com/repos/sharpkathy123/MakePhotoCollage/commits/main', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ commit: { committer: { date: '2026-08-31T03:12:00Z' } } }),
+    await page.route('**/index.html', async (route) => {
+      if (route.request().resourceType() !== 'fetch') {
+        await route.continue();
+        return;
+      }
+      const response = await route.fetch();
+      await route.fulfill({
+        response,
+        headers: { ...response.headers(), 'last-modified': 'Sun, 30 Aug 2026 03:12:00 GMT' },
       });
     });
 
     await page.goto('/index.html');
 
-    // UTC 2026-08-31 03:12 in America/Los_Angeles (UTC-7 in August) is the
+    // UTC 2026-08-30 03:12 in America/Los_Angeles (UTC-7 in August) is the
     // previous calendar day, 20:12 -- the date-rollover case.
-    await expect(page.locator('#updateTimestamp')).toHaveText('2026-08-30 20:12');
+    await expect(page.locator('#updateTimestamp')).toHaveText('2026-08-29 20:12');
 
     await context.close();
   });
 
-  test('footer timestamp shows "unavailable" if the commit lookup fails', async ({ page }) => {
-    await page.route('https://api.github.com/repos/sharpkathy123/MakePhotoCollage/commits/main', (route) => {
-      route.fulfill({ status: 500, body: 'server error' });
+  test('footer timestamp shows "unavailable" if the Last-Modified lookup fails', async ({ page }) => {
+    await page.route('**/index.html', async (route) => {
+      if (route.request().resourceType() !== 'fetch') {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({ status: 500, body: 'server error' });
     });
 
     await page.goto('/index.html');
