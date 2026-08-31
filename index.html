@@ -159,6 +159,38 @@
       color: var(--accent-color);
     }
 
+    /* A custom-rendered replacement for native <select> pickers, used for
+       Mask Shape and Mask Pan Behavior. iOS Safari's native <select> popup
+       can show a checkmark on a stale option after its value is changed by
+       script (rather than by a person tapping in the popup itself), so
+       these avoid the native picker entirely -- there is no OS widget here
+       to desync from what the app's own data actually says. */
+    .option-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .option-btn {
+      flex: 1 1 calc(50% - 6px);
+      min-width: 90px;
+      padding: 8px 10px;
+      border: 2px solid var(--border-color);
+      border-radius: 8px;
+      background: #fafafa;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-align: center;
+      transition: all 0.2s ease;
+    }
+
+    .option-btn.active {
+      border-color: var(--accent-color);
+      background: #eef6ff;
+      color: var(--accent-color);
+    }
+
     .color-picker-box {
       width: 24px;
       height: 24px;
@@ -332,21 +364,21 @@
 
     <div class="row">
       <div class="control">
-        <label for="maskMode">Mask Shape</label>
-        <select id="maskMode">
-          <option value="none">None (Original Aspect)</option>
-          <option value="square">Square (1:1)</option>
-          <option value="circle">Circle</option>
-          <option value="ellipse">Ellipse / Oval</option>
-          <option value="rounded">Rounded Rectangle</option>
-        </select>
+        <label id="maskModeLabel">Mask Shape</label>
+        <div class="option-group" id="maskModeGroup" role="group" aria-labelledby="maskModeLabel">
+          <button type="button" class="option-btn" data-value="none">None (Original Aspect)</button>
+          <button type="button" class="option-btn" data-value="square">Square (1:1)</button>
+          <button type="button" class="option-btn" data-value="circle">Circle</button>
+          <button type="button" class="option-btn" data-value="ellipse">Ellipse / Oval</button>
+          <button type="button" class="option-btn" data-value="rounded">Rounded Rectangle</button>
+        </div>
       </div>
       <div class="control">
-        <label for="maskBehavior">Mask Pan Behavior</label>
-        <select id="maskBehavior">
-          <option value="fixed">Fixed Window (Pan inside frame)</option>
-          <option value="attached">Attached (Mask moves with photo)</option>
-        </select>
+        <label id="maskBehaviorLabel">Mask Pan Behavior</label>
+        <div class="option-group" id="maskBehaviorGroup" role="group" aria-labelledby="maskBehaviorLabel">
+          <button type="button" class="option-btn" data-value="fixed">Fixed Window (Pan inside frame)</button>
+          <button type="button" class="option-btn" data-value="attached">Attached (Mask moves with photo)</button>
+        </div>
       </div>
     </div>
     <div class="control disabled" id="radiusGroup">
@@ -418,7 +450,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609010700').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609010800').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -467,8 +499,8 @@
   const layoutType = document.getElementById('layoutType');
   const gridCols = document.getElementById('gridCols');
   const gridColsGroup = document.getElementById('gridColsGroup');
-  const maskMode = document.getElementById('maskMode');
-  const maskBehavior = document.getElementById('maskBehavior');
+  const maskModeGroup = document.getElementById('maskModeGroup');
+  const maskBehaviorGroup = document.getElementById('maskBehaviorGroup');
   const cornerRadius = document.getElementById('cornerRadius');
   const radiusGroup = document.getElementById('radiusGroup');
   const radiusVal = document.getElementById('radiusVal');
@@ -946,48 +978,26 @@
     requestRender();
   }
 
-  // Sets a <select>'s displayed value to match `values` when they're all
-  // the same, or to a non-selectable "Mixed" placeholder otherwise. This
-  // matters beyond display: if the dropdown silently showed one selected
-  // photo's current value while the rest of a multi-selection differ, then
-  // picking that same value again (a completely reasonable thing to want
-  // for the rest of the selection) wouldn't fire a native `change` event at
-  // all -- the browser only fires `change` when the resulting value differs
-  // from what was already showing -- so the other photos would silently
-  // never get updated.
-  function setSelectValueOrMixed(selectEl, values) {
-    const allSame = values.every(v => v === values[0]);
-    let mixedOption = selectEl.querySelector('option[data-mixed]');
-    if (allSame) {
-      if (mixedOption) mixedOption.remove();
-      selectOptionByValue(selectEl, values[0]);
-    } else {
-      if (!mixedOption) {
-        mixedOption = document.createElement('option');
-        mixedOption.dataset.mixed = 'true';
-        mixedOption.disabled = true;
-        mixedOption.hidden = true;
-        mixedOption.value = '__mixed__';
-        mixedOption.textContent = 'Mixed';
-        selectEl.insertBefore(mixedOption, selectEl.firstChild);
-      }
-      selectOptionByValue(selectEl, '__mixed__');
-    }
+  // Marks whichever button in a custom option-group matches `value` as
+  // active (and every other button as not), or clears all of them when
+  // `value` is null -- the "Mixed" state for a multi-selection whose
+  // current values differ. Mask Shape and Mask Pan Behavior are rendered
+  // as these button groups instead of native <select> elements because
+  // iOS Safari's native picker popup can show a checkmark on a stale
+  // option after its value changes by script (rather than by a person
+  // tapping in the popup itself) -- tapping the falsely-checked option is
+  // then a no-op as far as the picker is concerned, so nothing applies.
+  // Rendering the options ourselves means there's no OS widget to desync
+  // from what the app's own data says.
+  function setActiveOption(groupEl, value) {
+    Array.from(groupEl.querySelectorAll('.option-btn')).forEach(btn => {
+      btn.classList.toggle('active', value !== null && btn.dataset.value === value);
+    });
   }
 
-  // Sets which <option> is selected by flipping each option's own `selected`
-  // property, instead of the `selectEl.value = ...` shorthand. iOS Safari's
-  // native picker popup can keep showing a checkmark on whichever option a
-  // person last *tapped* even after `.value` is reassigned by script, so a
-  // photo selected right after a script-driven change could show the wrong
-  // option checked -- and tapping the option that already displays a
-  // checkmark is a no-op as far as the picker is concerned, so no `change`
-  // event fires and nothing gets applied. Explicitly touching every option's
-  // `selected` state is the standard workaround for that desync.
-  function selectOptionByValue(selectEl, value) {
-    Array.from(selectEl.options).forEach(opt => {
-      opt.selected = (opt.value === value);
-    });
+  function setActiveOptionOrMixed(groupEl, values) {
+    const allSame = values.every(v => v === values[0]);
+    setActiveOption(groupEl, allSame ? values[0] : null);
   }
 
   function syncSliderControls() {
@@ -1004,8 +1014,8 @@
 
     const m = photoMasks[primaryIdx] || defaultPhotoMask();
     const masks = selectedIndices.map(idx => photoMasks[idx] || defaultPhotoMask());
-    setSelectValueOrMixed(maskMode, masks.map(pm => pm.mode));
-    setSelectValueOrMixed(maskBehavior, masks.map(pm => pm.behavior));
+    setActiveOptionOrMixed(maskModeGroup, masks.map(pm => pm.mode));
+    setActiveOptionOrMixed(maskBehaviorGroup, masks.map(pm => pm.behavior));
     cornerRadius.value = m.radius;
     radiusVal.textContent = `${m.radius}px`;
     radiusGroup.classList.toggle('disabled', m.mode !== 'rounded');
@@ -1044,27 +1054,31 @@
   }
 
   // Mask controls apply to whichever photo(s) are currently selected, same
-  // pattern as the scale/rotation sliders above.
-  maskMode.addEventListener('change', () => {
-    radiusGroup.classList.toggle('disabled', maskMode.value !== 'rounded');
-    selectedIndices.forEach(idx => {
-      if (photoMasks[idx]) photoMasks[idx].mode = maskMode.value;
+  // pattern as the scale/rotation sliders above. Applying always resolves
+  // the selection to one shared value, so the clicked button can be marked
+  // active immediately and unambiguously -- no need to re-derive it from
+  // anything the browser rendered on its own.
+  maskModeGroup.querySelectorAll('.option-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const value = btn.dataset.value;
+      radiusGroup.classList.toggle('disabled', value !== 'rounded');
+      selectedIndices.forEach(idx => {
+        if (photoMasks[idx]) photoMasks[idx].mode = value;
+      });
+      setActiveOption(maskModeGroup, value);
+      requestRender();
     });
-    // The whole selection now shares one value, so any leftover "Mixed"
-    // placeholder option is stale -- drop it rather than waiting for the
-    // next selection change to clean it up.
-    const stillMixed = maskMode.querySelector('option[data-mixed]');
-    if (stillMixed) stillMixed.remove();
-    requestRender();
   });
 
-  maskBehavior.addEventListener('change', () => {
-    selectedIndices.forEach(idx => {
-      if (photoMasks[idx]) photoMasks[idx].behavior = maskBehavior.value;
+  maskBehaviorGroup.querySelectorAll('.option-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const value = btn.dataset.value;
+      selectedIndices.forEach(idx => {
+        if (photoMasks[idx]) photoMasks[idx].behavior = value;
+      });
+      setActiveOption(maskBehaviorGroup, value);
+      requestRender();
     });
-    const stillMixed = maskBehavior.querySelector('option[data-mixed]');
-    if (stillMixed) stillMixed.remove();
-    requestRender();
   });
 
   cornerRadius.addEventListener('input', () => {

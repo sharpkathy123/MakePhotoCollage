@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos, samplePixel, cellCenter } = require('./helpers');
+const { FIXTURES, loadPhotos, samplePixel, clickOption, getActiveOptionValue } = require('./helpers');
 
 test.describe('Per-photo masks', () => {
   test('mask shape, behavior, and radius are independent per photo', async ({ page }) => {
@@ -78,10 +78,10 @@ test.describe('Per-photo masks', () => {
     await loadPhotos(page, [FIXTURES.redLandscape]);
     await page.waitForTimeout(50);
 
-    await page.selectOption('#maskMode', 'circle');
+    await clickOption(page, '#maskModeGroup', 'circle');
     await expect(page.locator('#radiusGroup')).toHaveClass(/disabled/);
 
-    await page.selectOption('#maskMode', 'rounded');
+    await clickOption(page, '#maskModeGroup', 'rounded');
     await expect(page.locator('#radiusGroup')).not.toHaveClass(/disabled/);
   });
 
@@ -97,19 +97,22 @@ test.describe('Per-photo masks', () => {
     });
 
     await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
-    await expect(page.locator('#maskMode')).toHaveValue('circle');
+    expect(await getActiveOptionValue(page, '#maskModeGroup')).toBe('circle');
 
     await page.evaluate(() => { selectedIndices = [1]; syncSliderControls(); });
-    await expect(page.locator('#maskMode')).toHaveValue('rounded');
+    expect(await getActiveOptionValue(page, '#maskModeGroup')).toBe('rounded');
   });
 
   // Regression test: applying a mask shape to a multi-selection with mixed
-  // current shapes used to silently no-op for some photos in the selection.
-  // The dropdown displayed the *first* selected photo's current mode, so if
-  // the user picked that same mode (wanting it applied to the whole
-  // selection), the browser's native <select> never fired a `change` event
-  // at all -- its value hadn't actually changed -- leaving every other
-  // photo in the selection stuck on its old mode.
+  // current shapes used to silently no-op for some photos in the selection,
+  // back when this was a native <select>: the dropdown displayed the
+  // *first* selected photo's current mode, so if the user picked that same
+  // mode (wanting it applied to the whole selection), the browser's native
+  // <select> never fired a `change` event at all -- its value hadn't
+  // actually changed -- leaving every other photo in the selection stuck on
+  // its old mode. The custom button group applies on every click
+  // regardless, so this can't happen anymore, but the guarantee itself
+  // (every selected photo gets updated) is still worth protecting.
   test('applying a mask shape to a mixed-mode multi-selection updates every selected photo, even when the picked value matches the primary photo\'s current mode', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
@@ -121,19 +124,21 @@ test.describe('Per-photo masks', () => {
       syncSliderControls();
     });
 
-    // Mixed selection: the dropdown must not silently claim one specific
-    // shape (masking the fact that photo 1 differs).
-    await expect(page.locator('#maskMode')).toHaveValue('__mixed__');
+    // Mixed selection: no single button should claim to be the current
+    // shape (that would mask the fact that photo 1 differs).
+    expect(await getActiveOptionValue(page, '#maskModeGroup')).toBeNull();
 
     // Pick "Ellipse" -- already photo 0's mode, but not photo 1's.
-    await page.selectOption('#maskMode', 'ellipse');
+    await clickOption(page, '#maskModeGroup', 'ellipse');
 
     const modes = await page.evaluate(() => photoMasks.map((m) => m.mode));
     expect(modes[0]).toBe('ellipse');
     expect(modes[1]).toBe('ellipse');
+    // The selection is uniform again now, so exactly one button is active.
+    expect(await getActiveOptionValue(page, '#maskModeGroup')).toBe('ellipse');
   });
 
-  // Same underlying bug class applies to the Mask Pan Behavior dropdown.
+  // Same underlying guarantee applies to the Mask Pan Behavior group.
   test('applying a pan behavior to a mixed-behavior multi-selection updates every selected photo', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
@@ -145,35 +150,13 @@ test.describe('Per-photo masks', () => {
       syncSliderControls();
     });
 
-    await expect(page.locator('#maskBehavior')).toHaveValue('__mixed__');
+    expect(await getActiveOptionValue(page, '#maskBehaviorGroup')).toBeNull();
 
-    await page.selectOption('#maskBehavior', 'fixed');
+    await clickOption(page, '#maskBehaviorGroup', 'fixed');
 
     const behaviors = await page.evaluate(() => photoMasks.map((m) => m.behavior));
     expect(behaviors[0]).toBe('fixed');
     expect(behaviors[1]).toBe('fixed');
-  });
-
-  // Regression guard: the hidden, disabled "Mixed" placeholder option used
-  // to linger in the dropdown's DOM after a bulk apply resolved the
-  // selection back to one shared value -- it only got cleaned up on the
-  // *next* selection change, not immediately. Harmless to the applied value,
-  // but stale DOM state left sitting in a native <select> is exactly the
-  // kind of thing that invites picker-sync bugs, so it should never survive
-  // past the change that made it stale.
-  test('the "Mixed" placeholder option is removed immediately once a bulk apply makes the selection uniform again', async ({ page }) => {
-    await page.goto('/index.html');
-    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
-
-    await page.evaluate(() => {
-      photoMasks[0].mode = 'circle';
-      photoMasks[1].mode = 'ellipse';
-      selectedIndices = [0, 1];
-      syncSliderControls();
-    });
-    expect(await page.evaluate(() => document.querySelectorAll('#maskMode option[data-mixed]').length)).toBe(1);
-
-    await page.selectOption('#maskMode', 'square');
-    expect(await page.evaluate(() => document.querySelectorAll('#maskMode option[data-mixed]').length)).toBe(0);
+    expect(await getActiveOptionValue(page, '#maskBehaviorGroup')).toBe('fixed');
   });
 });

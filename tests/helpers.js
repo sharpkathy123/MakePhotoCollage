@@ -80,6 +80,24 @@ async function setColorInput(page, selector, hexValue) {
   }, { selector, hexValue });
 }
 
+// Clicks the option-group button with the given data-value -- replaces
+// page.selectOption() for Mask Shape (#maskModeGroup) and Mask Pan
+// Behavior (#maskBehaviorGroup), which are custom button groups rather
+// than native <select> elements.
+async function clickOption(page, groupSelector, value) {
+  await page.click(`${groupSelector} .option-btn[data-value="${value}"]`);
+}
+
+// Returns the data-value of whichever button in an option-group is
+// currently marked active, or null if none is (the "Mixed" state for a
+// multi-selection whose current values differ).
+async function getActiveOptionValue(page, groupSelector) {
+  return page.evaluate((sel) => {
+    const active = document.querySelector(`${sel} .option-btn.active`);
+    return active ? active.dataset.value : null;
+  }, groupSelector);
+}
+
 module.exports = {
   FIXTURES,
   loadPhotos,
@@ -88,4 +106,6 @@ module.exports = {
   appPointToViewport,
   cellCenter,
   setColorInput,
+  clickOption,
+  getActiveOptionValue,
 };

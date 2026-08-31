@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos, appPointToViewport, cellCenter } = require('./helpers');
+const { FIXTURES, loadPhotos, appPointToViewport, cellCenter, clickOption } = require('./helpers');
 
 test.describe('Selection', () => {
   test('a plain click selects exactly one photo, replacing any previous selection', async ({ page }) => {
@@ -59,7 +59,7 @@ test.describe('Selection', () => {
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait, FIXTURES.greenSquare, FIXTURES.yellowSquare]);
 
     await page.click('button:text("Select All")');
-    await page.selectOption('#maskMode', 'circle');
+    await clickOption(page, '#maskModeGroup', 'circle');
     expect(await page.evaluate(() => photoMasks.map((m) => m.mode))).toEqual(['circle', 'circle', 'circle', 'circle']);
 
     await page.click('#multiSelectToggleBtn');
@@ -70,7 +70,7 @@ test.describe('Selection', () => {
     await page.mouse.click(v0.x, v0.y);
     expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0]);
 
-    await page.selectOption('#maskMode', 'ellipse');
+    await clickOption(page, '#maskModeGroup', 'ellipse');
     const modes = await page.evaluate(() => photoMasks.map((m) => m.mode));
     expect(modes).toEqual(['ellipse', 'circle', 'circle', 'circle']);
   });
