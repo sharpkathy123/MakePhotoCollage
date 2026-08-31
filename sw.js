@@ -1,5 +1,5 @@
 // Service Worker with Timestamped Cache Key
-const CACHE_NAME = 'grid-collage-cache-2026-08-31-1200';
+const CACHE_NAME = 'grid-collage-cache-2026-08-31-1400';
 
 const ASSETS_TO_CACHE = [
   './',

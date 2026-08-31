@@ -288,6 +288,7 @@
       <input type="file" id="imgInput" accept="image/*" multiple>
       <button class="btn-secondary" type="button" id="gphotosImportBtn" onclick="importFromGooglePhotos()">📷 Google Photos</button>
     </div>
+    <button class="btn-secondary" type="button" id="gphotosOpenPickerBtn" onclick="openGooglePhotosPickerTab()" style="display:none; width:100%; margin-top:6px;">🔗 Tap to Open Google Photos</button>
   </div>
 
   <div id="canvas-container">
@@ -406,7 +407,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608311200').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608311400').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -415,6 +416,7 @@
   // DOM Elements
   const imgInput = document.getElementById('imgInput');
   const gphotosImportBtn = document.getElementById('gphotosImportBtn');
+  const gphotosOpenPickerBtn = document.getElementById('gphotosOpenPickerBtn');
   const innerSpacing = document.getElementById('innerSpacing');
   const outerSpacing = document.getElementById('outerSpacing');
   const innerSpacingVal = document.getElementById('innerSpacingVal');
@@ -627,8 +629,10 @@
     return id || null;
   }
 
+  let gisLoadPromise = null;
   function ensureGoogleIdentityLoaded() {
-    return new Promise((resolve, reject) => {
+    if (gisLoadPromise) return gisLoadPromise;
+    gisLoadPromise = new Promise((resolve, reject) => {
       if (window.google && window.google.accounts && window.google.accounts.oauth2) {
         resolve();
         return;
@@ -641,10 +645,23 @@
       script.onerror = () => reject(new Error('Failed to load Google Sign-In. Check your internet connection.'));
       document.head.appendChild(script);
     });
+    return gisLoadPromise;
   }
+  // Start loading immediately (not inside the click handler) so it's
+  // already available by the time the user clicks — see below for why.
+  ensureGoogleIdentityLoaded().catch(() => {});
 
-  async function requestGooglePhotosAccessToken(clientId) {
-    await ensureGoogleIdentityLoaded();
+  // Deliberately NOT async: browsers only allow the popup opened inside
+  // requestAccessToken() to succeed when it runs synchronously as a direct
+  // response to the user's click, with no `await` in between (even a single
+  // microtask tick is enough for Safari to treat the click as "used up").
+  // Constructing `new Promise(executor)` still runs `executor` synchronously,
+  // so as long as nothing above this awaits first, the popup call below
+  // fires within the click's own call stack.
+  function requestGooglePhotosAccessToken(clientId) {
+    if (!(window.google && window.google.accounts && window.google.accounts.oauth2)) {
+      return Promise.reject(new Error('Google Sign-In is still loading — please try again in a moment.'));
+    }
     return new Promise((resolve, reject) => {
       if (!gphotosTokenClient || gphotosTokenClient.clientId !== clientId) {
         gphotosTokenClient = google.accounts.oauth2.initTokenClient({
@@ -722,56 +739,92 @@
       }));
   }
 
+  // Kept between the two clicks below: the token/session obtained on the
+  // first click, used once the user clicks through on the second.
+  let pendingGPhotosSession = null;
+  let pendingGPhotosAccessToken = null;
+
+  // Click 1: sign in and start a picker session. No pop-up is opened here
+  // by us — only Google's own sign-in library opens one (requestAccessToken
+  // above), and only as the very next call after the click, so it's never
+  // blocked. The actual Google Photos picker window is opened separately,
+  // in direct response to a second click (see openGooglePhotosPickerTab),
+  // since by the time the session exists we're several `await`s removed
+  // from this click and a window.open() here would risk being blocked.
   async function importFromGooglePhotos() {
     const clientId = getGooglePhotosClientId();
     if (!clientId) return;
 
-    const originalLabel = gphotosImportBtn.textContent;
     gphotosImportBtn.disabled = true;
-
-    // Open the tab synchronously, as a direct response to the click, and
-    // point it at the real picker URL once we have one. Some browsers
-    // (Safari in particular) silently block window.open() once any `await`
-    // has run, so we can't wait until after the token/session calls below.
-    const pickerWindow = window.open('about:blank', '_blank');
 
     try {
       gphotosImportBtn.textContent = 'Connecting…';
       const accessToken = await requestGooglePhotosAccessToken(clientId);
 
+      gphotosImportBtn.textContent = 'Preparing picker…';
       const session = await createPickerSession(accessToken);
-      if (!pickerWindow || pickerWindow.closed) {
-        throw new Error('Your browser blocked the Google Photos picker pop-up. Please allow pop-ups for this site and try again.');
-      }
-      pickerWindow.location.href = session.pickerUri;
 
-      gphotosImportBtn.textContent = 'Waiting for picker…';
+      pendingGPhotosSession = session;
+      pendingGPhotosAccessToken = accessToken;
+
+      gphotosImportBtn.style.display = 'none';
+      gphotosOpenPickerBtn.style.display = '';
+      gphotosOpenPickerBtn.disabled = false;
+      gphotosOpenPickerBtn.textContent = '🔗 Tap to Open Google Photos';
+    } catch (err) {
+      console.error('Google Photos import failed:', err);
+      alert(err.message || 'Could not import photos from Google Photos.');
+      gphotosImportBtn.disabled = false;
+      gphotosImportBtn.textContent = '📷 Google Photos';
+    }
+  }
+
+  // Click 2: a fresh, direct user gesture, so window.open() here is safe
+  // regardless of how long the async work in step 1 took.
+  async function openGooglePhotosPickerTab() {
+    const session = pendingGPhotosSession;
+    const accessToken = pendingGPhotosAccessToken;
+    if (!session) return;
+
+    const pickerTab = window.open(session.pickerUri, '_blank');
+    if (!pickerTab) {
+      alert('Your browser blocked the Google Photos picker pop-up. Please allow pop-ups for this site and try again.');
+      return;
+    }
+
+    gphotosOpenPickerBtn.disabled = true;
+    gphotosOpenPickerBtn.textContent = 'Waiting for your selection…';
+
+    try {
       const pollInterval = parseApiDuration(session.pollingConfig && session.pollingConfig.pollInterval) || 2000;
       const timeout = parseApiDuration(session.pollingConfig && session.pollingConfig.timeoutIn) || 5 * 60 * 1000;
       const finishedSession = await pollPickerSession(session.id, accessToken, pollInterval, timeout);
 
       const mediaItems = await listPickedMediaItems(finishedSession.id, accessToken);
-      if (!mediaItems.length) return;
+      if (mediaItems.length) {
+        const images = [];
+        for (let i = 0; i < mediaItems.length; i++) {
+          gphotosOpenPickerBtn.textContent = `Downloading ${i + 1}/${mediaItems.length}…`;
+          images.push(await fetchPickedImage(mediaItems[i], accessToken));
+        }
 
-      const images = [];
-      for (let i = 0; i < mediaItems.length; i++) {
-        gphotosImportBtn.textContent = `Downloading ${i + 1}/${mediaItems.length}…`;
-        images.push(await fetchPickedImage(mediaItems[i], accessToken));
+        fetch(`https://photospicker.googleapis.com/v1/sessions/${finishedSession.id}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        }).catch(() => {});
+
+        applyNewImageSet(images, { append: true });
       }
-
-      fetch(`https://photospicker.googleapis.com/v1/sessions/${finishedSession.id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).catch(() => {});
-
-      applyNewImageSet(images, { append: true });
     } catch (err) {
       console.error('Google Photos import failed:', err);
       alert(err.message || 'Could not import photos from Google Photos.');
-      if (pickerWindow && !pickerWindow.closed) pickerWindow.close();
     } finally {
+      pendingGPhotosSession = null;
+      pendingGPhotosAccessToken = null;
+      gphotosOpenPickerBtn.style.display = 'none';
+      gphotosImportBtn.style.display = '';
       gphotosImportBtn.disabled = false;
-      gphotosImportBtn.textContent = originalLabel;
+      gphotosImportBtn.textContent = '📷 Google Photos';
     }
   }
 
