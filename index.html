@@ -400,18 +400,31 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span id="updateTimestamp">2026-08-31 03:12</span>
+    Updated: <span id="updateTimestamp" data-updated-utc="2026-08-31T03:12:00Z">2026-08-31 03:12 UTC</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608311600').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608312000').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
   }
+
+  // The footer timestamp is stamped in UTC at deploy time (there's no
+  // single "local" time for a static site with visitors everywhere), so
+  // convert it to each viewer's own local time here in the browser.
+  (function () {
+    const el = document.getElementById('updateTimestamp');
+    const iso = el && el.getAttribute('data-updated-utc');
+    if (!iso) return;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return;
+    const pad = n => String(n).padStart(2, '0');
+    el.textContent = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  })();
 
   // DOM Elements
   const imgInput = document.getElementById('imgInput');
