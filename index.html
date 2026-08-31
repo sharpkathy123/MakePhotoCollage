@@ -418,7 +418,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609010500').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609010600').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -908,6 +908,18 @@
     multiSelectMode = !multiSelectMode;
     multiSelectToggleBtn.classList.toggle('active', multiSelectMode);
     multiSelectHint.style.display = multiSelectMode ? 'block' : 'none';
+    if (multiSelectMode) {
+      // Start every multi-select session from a clean slate. Otherwise a
+      // selection made before entering multi-select mode (e.g. via "Select
+      // All") carries over, and since a tap only toggles membership, the
+      // very first tap on one of those already-selected photos silently
+      // REMOVES it from the selection instead of isolating it -- so a bulk
+      // edit picked right after ends up applied to every *other* photo,
+      // with no visible sign anything went to the wrong place.
+      selectedIndices = [];
+      syncSliderControls();
+      requestRender();
+    }
   }
 
   function selectAllPhotos() {
