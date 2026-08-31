@@ -46,6 +46,7 @@ test.describe('Spacing & colors', () => {
   test('inner and outer color pickers fill the corresponding background areas', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.greenSquare]);
+    await page.click('button:text("Deselect All")'); // avoid the selection outline overlapping the inner-gap sample below
 
     // Inner Gap is the active color target by default; Outer Border must be
     // explicitly selected first, or its color input is ignored (this
