@@ -126,6 +126,12 @@
       cursor: not-allowed;
     }
 
+    .btn-secondary.active {
+      background-color: var(--accent-color);
+      color: #ffffff;
+      border-color: var(--accent-color);
+    }
+
     .color-target-toggle {
       display: flex;
       gap: 10px;
@@ -298,14 +304,16 @@
 
   <!-- Active Photo Controls -->
   <div class="photo-controls-card" id="photoControls" style="display:none;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
       <span style="font-size:0.85rem; font-weight:700; color:var(--accent-color);" id="selectedPhotoLabel">Photo 1 Selected</span>
       <div class="button-group-inline">
+        <button class="btn-secondary" type="button" id="multiSelectToggleBtn" onclick="toggleMultiSelectMode()">Select Multiple</button>
         <button class="btn-secondary" type="button" onclick="selectAllPhotos()">Select All</button>
         <button class="btn-secondary" type="button" onclick="deselectAllPhotos()">Deselect All</button>
         <button class="btn-secondary" type="button" onclick="resetSelectedTransform()">Reset Photo</button>
       </div>
     </div>
+    <div class="touch-hint" id="multiSelectHint" style="display:none;">🖐 Multi-select on — tap photos to add/remove from selection</div>
     <div class="row">
       <div class="control">
         <label>Scale: <span id="scaleVal">1.0</span></label>
@@ -315,6 +323,30 @@
         <label>Rotation: <span id="rotVal">0°</span></label>
         <input type="range" id="modRotate" min="-180" max="180" value="0">
       </div>
+    </div>
+
+    <div class="row">
+      <div class="control">
+        <label for="maskMode">Mask Shape</label>
+        <select id="maskMode">
+          <option value="none">None (Original Aspect)</option>
+          <option value="square">Square (1:1)</option>
+          <option value="circle">Circle</option>
+          <option value="ellipse">Ellipse / Oval</option>
+          <option value="rounded">Rounded Rectangle</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="maskBehavior">Mask Pan Behavior</label>
+        <select id="maskBehavior">
+          <option value="fixed">Fixed Window (Pan inside frame)</option>
+          <option value="attached">Attached (Mask moves with photo)</option>
+        </select>
+      </div>
+    </div>
+    <div class="control disabled" id="radiusGroup">
+      <label for="cornerRadius">Corner Radius: <span id="radiusVal">30px</span></label>
+      <input type="range" id="cornerRadius" min="0" max="150" value="30">
     </div>
   </div>
 
@@ -369,32 +401,6 @@
         <div class="swatch-none" title="Transparent" onclick="setTransparentColor()">None</div>
       </div>
     </div>
-  </div>
-
-  <div class="section-title">4. Photo Masking</div>
-  <div class="row">
-    <div class="control">
-      <label for="maskMode">Mask Shape</label>
-      <select id="maskMode">
-        <option value="none">None (Original Aspect)</option>
-        <option value="square">Square (1:1)</option>
-        <option value="circle">Circle</option>
-        <option value="ellipse">Ellipse / Oval</option>
-        <option value="rounded">Rounded Rectangle</option>
-      </select>
-    </div>
-    <div class="control">
-      <label for="maskBehavior">Mask Pan Behavior</label>
-      <select id="maskBehavior">
-        <option value="fixed">Fixed Window (Pan inside frame)</option>
-        <option value="attached">Attached (Mask moves with photo)</option>
-      </select>
-    </div>
-  </div>
-
-  <div class="control disabled" id="radiusGroup">
-    <label for="cornerRadius">Corner Radius: <span id="radiusVal">30px</span></label>
-    <input type="range" id="cornerRadius" min="0" max="150" value="30">
   </div>
 
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
@@ -458,6 +464,8 @@
   const modRotate = document.getElementById('modRotate');
   const scaleVal = document.getElementById('scaleVal');
   const rotVal = document.getElementById('rotVal');
+  const multiSelectToggleBtn = document.getElementById('multiSelectToggleBtn');
+  const multiSelectHint = document.getElementById('multiSelectHint');
 
   // Application State
   let activeColorTarget = 'inner';
@@ -465,9 +473,15 @@
   let outerColorVal = '#1c1c1e';
   let rawImages = [];
   let transforms = [];
+  let photoMasks = [];
   let selectedIndices = [0];
   let cellBounds = [];
   let activeCols = 3;
+  let multiSelectMode = false;
+
+  function defaultPhotoMask() {
+    return { mode: 'none', behavior: 'fixed', radius: 30 };
+  }
 
   // Gesture State
   let isDragging = false;
@@ -561,8 +575,6 @@
   }
 
   function updateUI() {
-    radiusGroup.classList.toggle('disabled', maskMode.value !== 'rounded');
-    
     const isGrid = layoutType.value === 'grid';
     gridCols.disabled = !isGrid || !rawImages.length;
     gridColsGroup.classList.toggle('disabled', !isGrid || !rawImages.length);
@@ -575,10 +587,12 @@
     if (append && rawImages.length) {
       rawImages = rawImages.concat(newImages);
       transforms = transforms.concat(newImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 })));
+      photoMasks = photoMasks.concat(newImages.map(defaultPhotoMask));
       selectedIndices = [rawImages.length - newImages.length];
     } else {
       rawImages = newImages;
       transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
+      photoMasks = rawImages.map(defaultPhotoMask);
       selectedIndices = [0];
     }
 
@@ -854,6 +868,12 @@
     }
   });
 
+  function toggleMultiSelectMode() {
+    multiSelectMode = !multiSelectMode;
+    multiSelectToggleBtn.classList.toggle('active', multiSelectMode);
+    multiSelectHint.style.display = multiSelectMode ? 'block' : 'none';
+  }
+
   function selectAllPhotos() {
     selectedIndices = rawImages.map((_, i) => i);
     syncSliderControls();
@@ -877,6 +897,13 @@
     modRotate.value = t.rot;
     scaleVal.textContent = parseFloat(t.scale).toFixed(2);
     rotVal.textContent = `${t.rot}°`;
+
+    const m = photoMasks[primaryIdx] || defaultPhotoMask();
+    maskMode.value = m.mode;
+    maskBehavior.value = m.behavior;
+    cornerRadius.value = m.radius;
+    radiusVal.textContent = `${m.radius}px`;
+    radiusGroup.classList.toggle('disabled', m.mode !== 'rounded');
 
     if (selectedIndices.length === 1) {
       selectedPhotoLabel.textContent = `Photo ${primaryIdx + 1} Selected`;
@@ -911,17 +938,40 @@
     requestRender();
   }
 
+  // Mask controls apply to whichever photo(s) are currently selected, same
+  // pattern as the scale/rotation sliders above.
+  maskMode.addEventListener('change', () => {
+    radiusGroup.classList.toggle('disabled', maskMode.value !== 'rounded');
+    selectedIndices.forEach(idx => {
+      if (photoMasks[idx]) photoMasks[idx].mode = maskMode.value;
+    });
+    requestRender();
+  });
+
+  maskBehavior.addEventListener('change', () => {
+    selectedIndices.forEach(idx => {
+      if (photoMasks[idx]) photoMasks[idx].behavior = maskBehavior.value;
+    });
+    requestRender();
+  });
+
+  cornerRadius.addEventListener('input', () => {
+    const radius = parseInt(cornerRadius.value, 10) || 0;
+    radiusVal.textContent = `${radius}px`;
+    selectedIndices.forEach(idx => {
+      if (photoMasks[idx]) photoMasks[idx].radius = radius;
+    });
+    requestRender();
+  });
+
   // Fast Feedback Listeners
-  [innerSpacing, outerSpacing, maskMode, maskBehavior, cornerRadius].forEach(el => {
+  [innerSpacing, outerSpacing].forEach(el => {
     el.addEventListener('input', () => {
       if (el === innerSpacing) innerSpacingVal.textContent = `${innerSpacing.value}px`;
       if (el === outerSpacing) outerSpacingVal.textContent = `${outerSpacing.value}px`;
-      if (el === maskMode) updateUI();
-      if (el === cornerRadius) radiusVal.textContent = `${cornerRadius.value}px`;
       requestRender();
     });
     el.addEventListener('change', () => {
-      if (el === maskMode) updateUI();
       requestRender();
     });
   });
@@ -956,20 +1006,20 @@
     const cols = Math.max(1, activeCols || 1);
     const rows = Math.max(1, Math.ceil(rawImages.length / cols));
     
-    const mask = maskMode.value;
-    const behavior = maskBehavior.value;
-    const r = parseInt(cornerRadius.value, 10) || 0;
     const baseDimension = 600;
 
     cellBounds = [];
 
-    // Pre-calculate natural cell dimensions for every layout type
-    const cellLayouts = rawImages.map(img => {
+    // Pre-calculate natural cell dimensions for every layout type. Each
+    // photo's own mask decides whether its cell is a fixed square (square/
+    // circle masks) or fit to that photo's natural aspect ratio.
+    const cellLayouts = rawImages.map((img, idx) => {
       const imgW = img.naturalWidth || img.width || 1;
       const imgH = img.naturalHeight || img.height || 1;
       const aspect = imgW / imgH;
+      const photoMaskMode = (photoMasks[idx] || defaultPhotoMask()).mode;
 
-      if (mask === 'square' || mask === 'circle') {
+      if (photoMaskMode === 'square' || photoMaskMode === 'circle') {
         return { w: baseDimension, h: baseDimension };
       }
 
@@ -1051,17 +1101,27 @@
       const imgW = img.naturalWidth || img.width;
       const imgH = img.naturalHeight || img.height;
 
+      const photoMask = photoMasks[idx] || defaultPhotoMask();
+
       // Use cover mode (aspect-fill) when square/circle mask is selected
-      const fitMode = (mask === 'square' || mask === 'circle') ? 'cover' : 'fit';
+      const fitMode = (photoMask.mode === 'square' || photoMask.mode === 'circle') ? 'cover' : 'fit';
       const fit = calculateImageDimensions(imgW, imgH, cellW, cellH, fitMode);
+
+      // In cover mode the scaled image (fit.w/fit.h) is deliberately larger
+      // than the cell in one axis, so it can be cropped down to size — the
+      // mask/clip shape must be sized to the cell itself, not the oversized
+      // image, or it doesn't actually crop anything. In fit mode fit.w/fit.h
+      // already fit within the cell, so the mask hugs the image as before.
+      const maskW = fitMode === 'cover' ? cellW : fit.w;
+      const maskH = fitMode === 'cover' ? cellH : fit.h;
 
       ctx.save();
 
-      if (behavior === 'fixed') {
+      if (photoMask.behavior === 'fixed') {
         // Center mask boundaries precisely around cell center for fixed mode
-        const maskX = centerX - fit.w / 2;
-        const maskY = centerY - fit.h / 2;
-        applyMaskPath(ctx, mask, maskX, maskY, fit.w, fit.h, r);
+        const maskX = centerX - maskW / 2;
+        const maskY = centerY - maskH / 2;
+        applyMaskPath(ctx, photoMask.mode, maskX, maskY, maskW, maskH, photoMask.radius);
         ctx.clip();
 
         ctx.translate(centerX + t.x, centerY + t.y);
@@ -1073,7 +1133,7 @@
         ctx.rotate(t.rot * Math.PI / 180);
         ctx.scale(t.scale, t.scale);
 
-        applyMaskPath(ctx, mask, -fit.w / 2, -fit.h / 2, fit.w, fit.h, r);
+        applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
         ctx.clip();
 
         ctx.drawImage(img, -fit.w / 2, -fit.h / 2, fit.w, fit.h);
@@ -1143,14 +1203,30 @@
   }
 
   // Touch / Drag Handlers
+  // Handles a tap/click on a photo cell. In multi-select mode this only
+  // adds/removes the photo from the selection and returns true, so the
+  // caller skips starting a drag on the same gesture. Otherwise it behaves
+  // as before: replace the selection with the tapped photo.
+  function handleCellTap(hit) {
+    if (hit === -1) return false;
+    if (multiSelectMode) {
+      const pos = selectedIndices.indexOf(hit);
+      if (pos === -1) selectedIndices.push(hit);
+      else selectedIndices.splice(pos, 1);
+      syncSliderControls();
+      requestRender();
+      return true;
+    }
+    selectedIndices = [hit];
+    syncSliderControls();
+    return false;
+  }
+
   canvas.addEventListener('touchstart', (e) => {
     if (e.touches.length === 1) {
       const coords = getCanvasCoords(e);
       const hit = hitTestCell(coords.x, coords.y);
-      if (hit !== -1) {
-        selectedIndices = [hit];
-        syncSliderControls();
-      }
+      if (handleCellTap(hit)) return;
       isDragging = true;
       dragStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       const primaryIdx = selectedIndices[0];
@@ -1206,10 +1282,7 @@
   canvas.addEventListener('mousedown', (e) => {
     const coords = getCanvasCoords(e);
     const hit = hitTestCell(coords.x, coords.y);
-    if (hit !== -1) {
-      selectedIndices = [hit];
-      syncSliderControls();
-    }
+    if (handleCellTap(hit)) return;
     isDragging = true;
     dragStart = { x: e.clientX, y: e.clientY };
     const primaryIdx = selectedIndices[0];
