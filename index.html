@@ -232,6 +232,9 @@
       background-size: 18px 18px;
       touch-action: none;
       cursor: grab;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
     }
 
     canvas:active {
@@ -407,14 +410,14 @@
   <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 
   <div class="version-stamp">
-    Updated: <span id="updateTimestamp" data-updated-utc="2026-08-31T03:38:26Z">2026-08-31 03:38 UTC</span>
+    Updated: <span id="updateTimestamp" data-updated-utc="2026-08-31T04:35:26Z">2026-08-31 04:35 UTC</span>
   </div>
 </div>
 
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202608312300').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202608312400').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -487,7 +490,7 @@
   // Gesture State
   let isDragging = false;
   let dragStart = { x: 0, y: 0 };
-  let initialTransform = { x: 0, y: 0 };
+  let initialTransforms = {};
   let initialPinchDist = null;
   let initialPinchScale = 1;
   let animFrameId = null;
@@ -587,12 +590,12 @@
 
     if (append && rawImages.length) {
       rawImages = rawImages.concat(newImages);
-      transforms = transforms.concat(newImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 })));
+      transforms = transforms.concat(newImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0, panX: 0, panY: 0 })));
       photoMasks = photoMasks.concat(newImages.map(defaultPhotoMask));
       selectedIndices = [rawImages.length - newImages.length];
     } else {
       rawImages = newImages;
-      transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0 }));
+      transforms = rawImages.map(() => ({ scale: 1, rot: 0, x: 0, y: 0, panX: 0, panY: 0 }));
       photoMasks = rawImages.map(defaultPhotoMask);
       selectedIndices = [0];
     }
@@ -936,7 +939,7 @@
 
   function resetSelectedTransform() {
     selectedIndices.forEach(idx => {
-      if (transforms[idx]) transforms[idx] = { scale: 1, rot: 0, x: 0, y: 0 };
+      if (transforms[idx]) transforms[idx] = { scale: 1, rot: 0, x: 0, y: 0, panX: 0, panY: 0 };
     });
     syncSliderControls();
     requestRender();
@@ -1098,7 +1101,7 @@
 
       cellBounds.push({ idx, x: cellX, y: cellY, w: cellW, h: cellH });
 
-      const t = transforms[idx] || { scale: 1, rot: 0, x: 0, y: 0 };
+      const t = transforms[idx] || { scale: 1, rot: 0, x: 0, y: 0, panX: 0, panY: 0 };
       const centerX = cellX + cellW / 2;
       const centerY = cellY + cellH / 2;
 
@@ -1121,26 +1124,48 @@
 
       ctx.save();
 
+      // The mask/frame always sits at the unit's own position (x, y).
+      // Panning (panX, panY) shifts only the photo content, expressed as a
+      // true screen-space offset in both modes, so switching between Fixed
+      // and Attached never jumps the crop you set up — only who moves in
+      // response to dragging changes: Fixed updates panX/panY (content
+      // slides inside a stationary frame), Attached updates x/y (the whole
+      // framed photo moves together, keeping the same content-vs-frame
+      // offset).
+      const unitCenterX = centerX + t.x;
+      const unitCenterY = centerY + t.y;
+
       if (photoMask.behavior === 'fixed') {
-        // Center mask boundaries precisely around cell center for fixed mode
-        const maskX = centerX - maskW / 2;
-        const maskY = centerY - maskH / 2;
-        applyMaskPath(ctx, photoMask.mode, maskX, maskY, maskW, maskH, photoMask.radius);
+        // Frame stays unrotated at the unit position; content pans behind
+        // it, then gets its own rotation/scale.
+        applyMaskPath(ctx, photoMask.mode, unitCenterX - maskW / 2, unitCenterY - maskH / 2, maskW, maskH, photoMask.radius);
         ctx.clip();
 
-        ctx.translate(centerX + t.x, centerY + t.y);
+        ctx.translate(unitCenterX + t.panX, unitCenterY + t.panY);
         ctx.rotate(t.rot * Math.PI / 180);
         ctx.scale(t.scale, t.scale);
         ctx.drawImage(img, -fit.w / 2, -fit.h / 2, fit.w, fit.h);
       } else {
-        ctx.translate(centerX + t.x, centerY + t.y);
+        // Frame rotates with the unit but keeps a constant size (matching
+        // Fixed mode's cell-based frame) regardless of zoom — only the
+        // content is meant to grow when you zoom, not the frame itself.
+        ctx.translate(unitCenterX, unitCenterY);
         ctx.rotate(t.rot * Math.PI / 180);
-        ctx.scale(t.scale, t.scale);
 
         applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
         ctx.clip();
 
+        // The pan is re-expressed as a local offset that cancels out the
+        // unit's own rotation/scale, so its on-screen effect matches
+        // exactly what it looked like in Fixed mode.
+        ctx.scale(t.scale, t.scale);
+        ctx.save();
+        const rad = -t.rot * Math.PI / 180;
+        const localPanX = (t.panX * Math.cos(rad) - t.panY * Math.sin(rad)) / t.scale;
+        const localPanY = (t.panX * Math.sin(rad) + t.panY * Math.cos(rad)) / t.scale;
+        ctx.translate(localPanX, localPanY);
         ctx.drawImage(img, -fit.w / 2, -fit.h / 2, fit.w, fit.h);
+        ctx.restore();
       }
 
       ctx.restore();
@@ -1226,15 +1251,47 @@
     return false;
   }
 
+  // Snapshot every selected photo's transform at drag start, so each can be
+  // dragged relative to its own starting point (needed since a multi-select
+  // drag can mix photos in Fixed vs Attached mode).
+  function captureInitialTransforms() {
+    initialTransforms = {};
+    selectedIndices.forEach(idx => {
+      if (transforms[idx]) initialTransforms[idx] = { ...transforms[idx] };
+    });
+  }
+
+  // Applies a drag delta to every selected photo, updating panX/panY for
+  // photos in Fixed mode (content slides behind a stationary frame) or x/y
+  // for photos in Attached mode (the whole framed photo moves together).
+  function applyDragDelta(dx, dy) {
+    selectedIndices.forEach(idx => {
+      const init = initialTransforms[idx];
+      if (!init || !transforms[idx]) return;
+      const behavior = (photoMasks[idx] || defaultPhotoMask()).behavior;
+      if (behavior === 'attached') {
+        transforms[idx].x = Math.round(init.x + dx);
+        transforms[idx].y = Math.round(init.y + dy);
+      } else {
+        transforms[idx].panX = Math.round(init.panX + dx);
+        transforms[idx].panY = Math.round(init.panY + dy);
+      }
+    });
+  }
+
   canvas.addEventListener('touchstart', (e) => {
+    // Without this, browsers fire a synthetic mousedown/click after a quick
+    // tap (for legacy no-touch-listener compatibility), which would run our
+    // mousedown handler a second time for the same tap — e.g. double-toggling
+    // a multi-select pick right back off. preventDefault() suppresses that.
+    e.preventDefault();
     if (e.touches.length === 1) {
       const coords = getCanvasCoords(e);
       const hit = hitTestCell(coords.x, coords.y);
       if (handleCellTap(hit)) return;
       isDragging = true;
       dragStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      const primaryIdx = selectedIndices[0];
-      initialTransform = { ...transforms[primaryIdx] };
+      captureInitialTransforms();
       requestRender();
     } else if (e.touches.length === 2) {
       isDragging = false;
@@ -1245,7 +1302,7 @@
       const primaryIdx = selectedIndices[0];
       initialPinchScale = transforms[primaryIdx] ? transforms[primaryIdx].scale : 1;
     }
-  }, { passive: true });
+  }, { passive: false });
 
   canvas.addEventListener('touchmove', (e) => {
     if (isDragging && e.touches.length === 1 && selectedIndices.length) {
@@ -1253,13 +1310,7 @@
       const scaleFactor = canvas.width / rect.width;
       const dx = (e.touches[0].clientX - dragStart.x) * scaleFactor;
       const dy = (e.touches[0].clientY - dragStart.y) * scaleFactor;
-
-      selectedIndices.forEach(idx => {
-        if (transforms[idx]) {
-          transforms[idx].x = Math.round(initialTransform.x + dx);
-          transforms[idx].y = Math.round(initialTransform.y + dy);
-        }
-      });
+      applyDragDelta(dx, dy);
       requestRender();
     } else if (e.touches.length === 2 && initialPinchDist && selectedIndices.length) {
       const dist = Math.hypot(
@@ -1289,8 +1340,7 @@
     if (handleCellTap(hit)) return;
     isDragging = true;
     dragStart = { x: e.clientX, y: e.clientY };
-    const primaryIdx = selectedIndices[0];
-    initialTransform = { ...transforms[primaryIdx] };
+    captureInitialTransforms();
     requestRender();
   });
 
@@ -1300,18 +1350,12 @@
     const scaleFactor = canvas.width / rect.width;
     const dx = (e.clientX - dragStart.x) * scaleFactor;
     const dy = (e.clientY - dragStart.y) * scaleFactor;
-
-    selectedIndices.forEach(idx => {
-      if (transforms[idx]) {
-        transforms[idx].x = Math.round(initialTransform.x + dx);
-        transforms[idx].y = Math.round(initialTransform.y + dy);
-      }
-    });
+    applyDragDelta(dx, dy);
     requestRender();
   });
 
-  window.addEventListener('mouseup', () => { 
-    isDragging = false; 
+  window.addEventListener('mouseup', () => {
+    isDragging = false;
     requestRender();
   });
 
