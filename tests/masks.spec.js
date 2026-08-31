@@ -102,4 +102,55 @@ test.describe('Per-photo masks', () => {
     await page.evaluate(() => { selectedIndices = [1]; syncSliderControls(); });
     await expect(page.locator('#maskMode')).toHaveValue('rounded');
   });
+
+  // Regression test: applying a mask shape to a multi-selection with mixed
+  // current shapes used to silently no-op for some photos in the selection.
+  // The dropdown displayed the *first* selected photo's current mode, so if
+  // the user picked that same mode (wanting it applied to the whole
+  // selection), the browser's native <select> never fired a `change` event
+  // at all -- its value hadn't actually changed -- leaving every other
+  // photo in the selection stuck on its old mode.
+  test('applying a mask shape to a mixed-mode multi-selection updates every selected photo, even when the picked value matches the primary photo\'s current mode', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+
+    await page.evaluate(() => {
+      photoMasks[0].mode = 'ellipse';
+      photoMasks[1].mode = 'circle';
+      selectedIndices = [0, 1];
+      syncSliderControls();
+    });
+
+    // Mixed selection: the dropdown must not silently claim one specific
+    // shape (masking the fact that photo 1 differs).
+    await expect(page.locator('#maskMode')).toHaveValue('__mixed__');
+
+    // Pick "Ellipse" -- already photo 0's mode, but not photo 1's.
+    await page.selectOption('#maskMode', 'ellipse');
+
+    const modes = await page.evaluate(() => photoMasks.map((m) => m.mode));
+    expect(modes[0]).toBe('ellipse');
+    expect(modes[1]).toBe('ellipse');
+  });
+
+  // Same underlying bug class applies to the Mask Pan Behavior dropdown.
+  test('applying a pan behavior to a mixed-behavior multi-selection updates every selected photo', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+
+    await page.evaluate(() => {
+      photoMasks[0].behavior = 'fixed';
+      photoMasks[1].behavior = 'attached';
+      selectedIndices = [0, 1];
+      syncSliderControls();
+    });
+
+    await expect(page.locator('#maskBehavior')).toHaveValue('__mixed__');
+
+    await page.selectOption('#maskBehavior', 'fixed');
+
+    const behaviors = await page.evaluate(() => photoMasks.map((m) => m.behavior));
+    expect(behaviors[0]).toBe('fixed');
+    expect(behaviors[1]).toBe('fixed');
+  });
 });
