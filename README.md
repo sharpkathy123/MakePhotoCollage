@@ -63,3 +63,17 @@ To use this app while traveling or without internet, you just need to open it **
 1. **Step 1 (First Time Only):** Open **[the app link](https://sharpkathy123.github.io/MakePhotoCollage/)** while connected to Wi-Fi or cellular data. Let the page load completely.
 2. **Step 2:** Turn on **Airplane Mode** or disconnect from the internet.
 3. **Step 3:** Open the app from your Home Screen—it will open instantly and work normally!
+
+---
+
+## 🧪 Running the Regression Tests
+
+The app itself needs no build step, but its test suite (in `tests/`) uses [Playwright](https://playwright.dev) and runs automatically on every push and pull request via GitHub Actions. To run it locally:
+
+```sh
+npm install
+npx playwright install --with-deps chromium   # first time only
+npx playwright test
+```
+
+Add `--ui` for Playwright's interactive UI mode, or `--headed` to watch the browser while tests run.
