@@ -19,12 +19,34 @@ test.describe('Loading photos', () => {
     expect(count).toBe(2);
   });
 
-  test('selecting files a second time replaces the previous set (native <input> semantics)', async ({ page }) => {
+  test('selecting files a second time appends to the previous set instead of replacing it', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait, FIXTURES.greenSquare]);
     expect(await page.evaluate(() => rawImages.length)).toBe(3);
 
     await loadPhotos(page, [FIXTURES.yellowSquare]);
+    expect(await page.evaluate(() => rawImages.length)).toBe(4);
+  });
+
+  test('"Start New Collage" clears all photos and resets the UI back to its empty state', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await expect(page.locator('#startNewBtn')).toBeVisible();
+
+    page.on('dialog', (dialog) => dialog.accept());
+    await page.click('#startNewBtn');
+
+    expect(await page.evaluate(() => rawImages.length)).toBe(0);
+    expect(await page.evaluate(() => transforms.length)).toBe(0);
+    expect(await page.evaluate(() => photoMasks.length)).toBe(0);
+    expect(await page.evaluate(() => selectedIndices.length)).toBe(0);
+    await expect(page.locator('#saveBtn')).toBeDisabled();
+    await expect(page.locator('#photoControls')).toBeHidden();
+    await expect(page.locator('#startNewBtn')).toBeHidden();
+
+    // A fresh selection afterward starts a new set rather than appending
+    // onto the (now cleared) old one.
+    await loadPhotos(page, [FIXTURES.greenSquare]);
     expect(await page.evaluate(() => rawImages.length)).toBe(1);
   });
 

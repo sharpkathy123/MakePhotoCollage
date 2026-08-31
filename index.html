@@ -299,6 +299,7 @@
     </div>
     <div style="font-size:0.7rem; color:#8e8e93; margin-top:4px;">Google Photos import only works for accounts approved in the README's setup steps — not submitted for Google's public review.</div>
     <button class="btn-secondary" type="button" id="gphotosOpenPickerBtn" onclick="openGooglePhotosPickerTab()" style="display:none; width:100%; margin-top:6px;">🔗 Tap to Open Google Photos</button>
+    <button class="btn-secondary" type="button" id="startNewBtn" onclick="startNewCollage()" style="display:none; width:100%; margin-top:6px;">🗑️ Start New Collage</button>
   </div>
 
   <div id="canvas-container">
@@ -417,7 +418,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609010100').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609010200').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -440,6 +441,7 @@
   const imgInput = document.getElementById('imgInput');
   const gphotosImportBtn = document.getElementById('gphotosImportBtn');
   const gphotosOpenPickerBtn = document.getElementById('gphotosOpenPickerBtn');
+  const startNewBtn = document.getElementById('startNewBtn');
   const innerSpacing = document.getElementById('innerSpacing');
   const outerSpacing = document.getElementById('outerSpacing');
   const innerSpacingVal = document.getElementById('innerSpacingVal');
@@ -609,10 +611,37 @@
     touchHint.style.display = 'block';
     photoControls.style.display = 'block';
     saveBtn.disabled = false;
+    startNewBtn.style.display = '';
 
     updateUI();
     syncSliderControls();
     requestRender();
+  }
+
+  // Clears the collage back to its empty starting state so the user can
+  // build a fresh one, without needing to reload the page.
+  function startNewCollage() {
+    if (!rawImages.length) return;
+    if (!confirm('Start a new collage? This removes all current photos and their edits.')) return;
+
+    rawImages = [];
+    transforms = [];
+    photoMasks = [];
+    selectedIndices = [];
+    cellBounds = [];
+    multiSelectMode = false;
+    multiSelectToggleBtn.classList.remove('active');
+    multiSelectHint.style.display = 'none';
+
+    imgInput.value = '';
+    startNewBtn.style.display = 'none';
+    photoControls.style.display = 'none';
+    touchHint.style.display = 'none';
+    paletteGroup.classList.add('disabled');
+    saveBtn.disabled = true;
+
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    updateUI();
   }
 
   // File Upload Handler
@@ -629,7 +658,7 @@
           img.src = URL.createObjectURL(file);
         });
       }));
-      applyNewImageSet(images, { append: false });
+      applyNewImageSet(images, { append: true });
     } catch (err) {
       console.error('Error loading uploaded photos:', err);
     }
