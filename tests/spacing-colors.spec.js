@@ -83,4 +83,56 @@ test.describe('Spacing & colors', () => {
     const outerPixel = await samplePixel(page, 2, 2);
     expect(outerPixel[3]).toBe(0); // fully transparent alpha
   });
+
+  test('Canvas Background defaults to transparent, so existing collages are unaffected', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.greenSquare]);
+    // Turn off Inner and Outer too, so nothing else could paint this pixel --
+    // isolates whether Canvas Background itself defaults to opaque or none.
+    await page.click('.swatch-none'); // Inner Gap is the active target by default
+    await page.click('#targetOuterBtn');
+    await page.click('.swatch-none');
+    await page.waitForTimeout(100);
+
+    const outerPixel = await samplePixel(page, 2, 2);
+    expect(outerPixel[3]).toBe(0);
+  });
+
+  // Regression test: Outer Frame Background fills the WHOLE canvas (0,0 to
+  // width,height), not just the border strip -- it only looks confined to
+  // the margin because Inner Area Background and the photos themselves are
+  // drawn on top of it afterward. So Canvas Background is the one control
+  // that's actually guaranteed visible everywhere, including in the outer
+  // margin and the inner gap, whenever Outer Border and Inner Gap are both
+  // set to None (e.g. someone wants a single flat backdrop instead of two
+  // separate border/gap colors).
+  test('Canvas Background shows through in both the outer margin and the inner gap once Inner and Outer are set to None', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.greenSquare]);
+    await page.click('button:text("Deselect All")'); // avoid the selection outline overlapping the inner-gap sample below
+
+    await page.click('.swatch-none'); // Inner Gap is the active target by default
+    await page.click('#targetOuterBtn');
+    await page.click('.swatch-none');
+
+    await page.click('#targetCanvasBtn');
+    await setColorInput(page, '#canvasColor', '#ff8800');
+    await page.waitForTimeout(100);
+
+    const outerPixel = await samplePixel(page, 2, 2);
+    expect(outerPixel).toEqual([255, 136, 0, 255]);
+
+    const innerGapPixel = await page.evaluate(() => {
+      const b = cellBounds[0];
+      return { x: Math.max(0, b.x - 5), y: b.y + Math.floor(b.h / 2) };
+    });
+    const innerPixel = await samplePixel(page, innerGapPixel.x, innerGapPixel.y);
+    expect(innerPixel).toEqual([255, 136, 0, 255]);
+
+    // Switching back to None returns it to transparent.
+    await page.click('.swatch-none');
+    await page.waitForTimeout(100);
+    const clearedPixel = await samplePixel(page, 2, 2);
+    expect(clearedPixel[3]).toBe(0);
+  });
 });

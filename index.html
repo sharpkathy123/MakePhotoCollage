@@ -134,12 +134,14 @@
 
     .color-target-toggle {
       display: flex;
+      flex-wrap: wrap;
       gap: 10px;
       margin-bottom: 8px;
     }
 
     .target-btn {
-      flex: 1;
+      flex: 1 1 auto;
+      min-width: 130px;
       padding: 8px 10px;
       border: 2px solid var(--border-color);
       border-radius: 8px;
@@ -428,6 +430,10 @@
         <span>Outer Border</span>
         <input type="color" class="color-picker-box" id="outerColor" value="#1c1c1e">
       </button>
+      <button class="target-btn" id="targetCanvasBtn" type="button" onclick="setActiveColorTarget('canvas')">
+        <span>Canvas Background</span>
+        <input type="color" class="color-picker-box" id="canvasColor" value="#f2f2f7">
+      </button>
     </div>
   </div>
 
@@ -450,7 +456,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609011300').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609011400').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -491,8 +497,10 @@
   const outerSpacingVal = document.getElementById('outerSpacingVal');
   const innerColor = document.getElementById('innerColor');
   const outerColor = document.getElementById('outerColor');
+  const canvasColor = document.getElementById('canvasColor');
   const targetInnerBtn = document.getElementById('targetInnerBtn');
   const targetOuterBtn = document.getElementById('targetOuterBtn');
+  const targetCanvasBtn = document.getElementById('targetCanvasBtn');
   const paletteGroup = document.getElementById('paletteGroup');
   const paletteArea = document.getElementById('paletteArea');
   const layoutType = document.getElementById('layoutType');
@@ -520,6 +528,10 @@
   let activeColorTarget = 'inner';
   let innerColorVal = '#ffffff';
   let outerColorVal = '#1c1c1e';
+  // Transparent by default so existing collages don't visibly change just
+  // because this control was added -- the Outer Border fill already acts
+  // as an opaque backdrop whenever its spacing is above 0px.
+  let canvasColorVal = 'none';
   let rawImages = [];
   let transforms = [];
   let photoMasks = [];
@@ -568,6 +580,7 @@
     activeColorTarget = target;
     targetInnerBtn.classList.toggle('active', target === 'inner');
     targetOuterBtn.classList.toggle('active', target === 'outer');
+    targetCanvasBtn.classList.toggle('active', target === 'canvas');
   }
 
   innerColor.addEventListener('input', (e) => {
@@ -584,14 +597,24 @@
       requestRender();
     }
   });
+  canvasColor.addEventListener('input', (e) => {
+    if (activeColorTarget === 'canvas') {
+      canvasColorVal = e.target.value;
+      canvasColor.classList.remove('transparent-active');
+      requestRender();
+    }
+  });
 
   function setTransparentColor() {
     if (activeColorTarget === 'inner') {
       innerColorVal = 'none';
       innerColor.classList.add('transparent-active');
-    } else {
+    } else if (activeColorTarget === 'outer') {
       outerColorVal = 'none';
       outerColor.classList.add('transparent-active');
+    } else {
+      canvasColorVal = 'none';
+      canvasColor.classList.add('transparent-active');
     }
     requestRender();
   }
@@ -1220,6 +1243,16 @@
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Canvas Background — the base fill behind everything, always covering
+    // the full canvas regardless of Outer Border thickness. Unlike Outer
+    // Frame Background below (which only ever shows in the border strip,
+    // and only when that spacing is above 0px), this is the one control
+    // that guarantees a visible backdrop even with 0px outer spacing.
+    if (canvasColorVal !== 'none') {
+      ctx.fillStyle = canvasColorVal;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
     // Outer Frame Background
     if (b > 0 && outerColorVal !== 'none') {
       ctx.fillStyle = outerColorVal;
@@ -1592,8 +1625,13 @@
       swatch.onclick = () => {
         if (activeColorTarget === 'inner') {
           innerColorVal = col.hex; innerColor.value = col.hex;
-        } else {
+          innerColor.classList.remove('transparent-active');
+        } else if (activeColorTarget === 'outer') {
           outerColorVal = col.hex; outerColor.value = col.hex;
+          outerColor.classList.remove('transparent-active');
+        } else {
+          canvasColorVal = col.hex; canvasColor.value = col.hex;
+          canvasColor.classList.remove('transparent-active');
         }
         requestRender();
       };
