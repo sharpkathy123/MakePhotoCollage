@@ -417,7 +417,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609010100').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609010300').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -893,6 +893,35 @@
     requestRender();
   }
 
+  // Sets a <select>'s displayed value to match `values` when they're all
+  // the same, or to a non-selectable "Mixed" placeholder otherwise. This
+  // matters beyond display: if the dropdown silently showed one selected
+  // photo's current value while the rest of a multi-selection differ, then
+  // picking that same value again (a completely reasonable thing to want
+  // for the rest of the selection) wouldn't fire a native `change` event at
+  // all -- the browser only fires `change` when the resulting value differs
+  // from what was already showing -- so the other photos would silently
+  // never get updated.
+  function setSelectValueOrMixed(selectEl, values) {
+    const allSame = values.every(v => v === values[0]);
+    let mixedOption = selectEl.querySelector('option[data-mixed]');
+    if (allSame) {
+      if (mixedOption) mixedOption.remove();
+      selectEl.value = values[0];
+    } else {
+      if (!mixedOption) {
+        mixedOption = document.createElement('option');
+        mixedOption.dataset.mixed = 'true';
+        mixedOption.disabled = true;
+        mixedOption.hidden = true;
+        mixedOption.value = '__mixed__';
+        mixedOption.textContent = 'Mixed';
+        selectEl.insertBefore(mixedOption, selectEl.firstChild);
+      }
+      selectEl.value = '__mixed__';
+    }
+  }
+
   function syncSliderControls() {
     if (!selectedIndices.length) {
       selectedPhotoLabel.textContent = "No Photos Selected";
@@ -906,8 +935,9 @@
     rotVal.textContent = `${t.rot}°`;
 
     const m = photoMasks[primaryIdx] || defaultPhotoMask();
-    maskMode.value = m.mode;
-    maskBehavior.value = m.behavior;
+    const masks = selectedIndices.map(idx => photoMasks[idx] || defaultPhotoMask());
+    setSelectValueOrMixed(maskMode, masks.map(pm => pm.mode));
+    setSelectValueOrMixed(maskBehavior, masks.map(pm => pm.behavior));
     cornerRadius.value = m.radius;
     radiusVal.textContent = `${m.radius}px`;
     radiusGroup.classList.toggle('disabled', m.mode !== 'rounded');
