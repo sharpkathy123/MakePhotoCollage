@@ -21,13 +21,13 @@ test.describe('Sampled color palette', () => {
     await loadPhotos(page, [FIXTURES.redLandscape]); // solid red source -> its dominant swatch is red-ish
     await page.waitForTimeout(100);
 
-    // Inner Gap is the default active target.
+    // Outer Border is the default active target.
     await page.locator('#paletteArea .swatch').first().click();
-    const innerColorValue = await page.inputValue('#innerColor');
-    expect(innerColorValue).not.toBe('#ffffff'); // changed from the default white
+    const outerColorValue = await page.inputValue('#outerColor');
+    expect(outerColorValue).not.toBe('#1c1c1e'); // changed from the default dark color
 
-    const appInnerColorVal = await page.evaluate(() => innerColorVal);
-    expect(appInnerColorVal.toLowerCase()).toBe(innerColorValue.toLowerCase());
+    const appOuterColorVal = await page.evaluate(() => outerColorVal);
+    expect(appOuterColorVal.toLowerCase()).toBe(outerColorValue.toLowerCase());
   });
 
   test('clicking the None swatch sets the active target to transparent', async ({ page }) => {
@@ -36,7 +36,7 @@ test.describe('Sampled color palette', () => {
     await page.waitForTimeout(100);
 
     await page.click('.swatch-none');
-    const target = await page.evaluate(() => innerColorVal);
+    const target = await page.evaluate(() => outerColorVal);
     expect(target).toBe('none');
   });
 });

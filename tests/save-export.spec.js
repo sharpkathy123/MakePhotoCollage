@@ -114,9 +114,11 @@ test.describe('Save / export', () => {
     const originalEdgePixel = await page.evaluate(({ x, y }) => {
       return Array.from(document.getElementById('collageCanvas').getContext('2d').getImageData(x, y, 1, 1).data);
     }, justOutsideTopEdge(bounds));
-    // The outline moved away with the frame, so the original cell edge is
-    // now just background, not the outline.
-    expect(originalEdgePixel).toEqual([255, 255, 255, 255]);
+    // The outline AND the photo's own border moved away with the frame (see
+    // renderCollage -- the border is drawn as part of the same translated
+    // unit as the photo and outline), so the original cell edge is now
+    // fully untouched -- not background-colored, truly transparent.
+    expect(originalEdgePixel).toEqual([0, 0, 0, 0]);
 
     // Frame's new top edge = cell's top edge + the applied x/y offset.
     const newEdgePoint = justOutsideTopEdge({ ...bounds, x: bounds.x + 150 }, 80);

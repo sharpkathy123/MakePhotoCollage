@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos, samplePixel, clickOption, getActiveOptionValue } = require('./helpers');
+const { FIXTURES, loadPhotos, samplePixel, clickOption, getActiveOptionValue, setColorInput } = require('./helpers');
 
 test.describe('Per-photo masks', () => {
   test('mask shape, behavior, and radius are independent per photo', async ({ page }) => {
@@ -67,8 +67,13 @@ test.describe('Per-photo masks', () => {
     await page.waitForTimeout(100);
 
     const bounds = await page.evaluate(() => ({ ...cellBounds[0] }));
+    // The corner is outside even the circle's own border ring (which hugs
+    // the circle shape, not the square cell) -- nothing paints there, so
+    // it's fully transparent, not a flat background fill.
     const corner = await samplePixel(page, bounds.x + 5, bounds.y + 5); // circle doesn't reach the square cell's corners
-    expect(corner).toEqual([255, 255, 255, 255]);
+    expect(corner[3]).toBe(0);
+    // Just past the circle's own edge, within its (default white) border
+    // ring though -- still covered, just by the border instead of content.
     const right = await samplePixel(page, bounds.x + bounds.w + 4, bounds.y + Math.floor(bounds.h / 2));
     expect(right).toEqual([255, 255, 255, 255]);
   });
@@ -158,5 +163,59 @@ test.describe('Per-photo masks', () => {
     expect(behaviors[0]).toBe('fixed');
     expect(behaviors[1]).toBe('fixed');
     expect(await getActiveOptionValue(page, '#maskBehaviorGroup')).toBe('fixed');
+  });
+
+  test('every photo\'s border defaults to white', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait, FIXTURES.greenSquare]);
+
+    const colors = await page.evaluate(() => photoMasks.map((m) => m.borderColor));
+    expect(colors).toEqual(['#ffffff', '#ffffff', '#ffffff']);
+  });
+
+  // Regression test: the border used to be a single flat color filling the
+  // whole gap area behind every photo (the old "Inner Area Background"),
+  // regardless of any individual photo's own mask shape. It's now a solid
+  // backer in each photo's OWN mask shape, sized a bit larger than the
+  // photo, drawn behind it -- so a circle-masked photo gets a circular
+  // border ring, not a rectangular one, and different photos can have
+  // different border colors.
+  test('a photo\'s border hugs its own mask shape and color, independent of other photos', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await page.click('button:text("Deselect All")'); // avoid the selection outline overlapping the samples below
+    await page.evaluate(() => {
+      photoMasks[0].mode = 'circle';
+      photoMasks[0].borderColor = '#ff8800';
+      requestRender();
+    });
+    await page.waitForTimeout(100);
+
+    const bounds = await page.evaluate(() => ({ ...cellBounds[0] }));
+    // Just past the circle's edge -- inside its (custom-colored) border ring.
+    const ringPoint = await samplePixel(page, bounds.x + bounds.w + 4, bounds.y + Math.floor(bounds.h / 2));
+    expect(ringPoint).toEqual([255, 136, 0, 255]);
+    // The square cell's corner -- outside even the enlarged circular border,
+    // so it's untouched (transparent), proving the border followed the
+    // circle shape rather than filling the whole rectangular cell.
+    const corner = await samplePixel(page, bounds.x + 5, bounds.y + 5);
+    expect(corner[3]).toBe(0);
+  });
+
+  test('the Border Color control updates only the selected photo(s), leaving others untouched', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
+
+    await setColorInput(page, '#borderColor', '#00aaff');
+    await page.waitForTimeout(50);
+
+    const colors = await page.evaluate(() => photoMasks.map((m) => m.borderColor));
+    expect(colors[0]).toBe('#00aaff');
+    expect(colors[1]).toBe('#ffffff'); // untouched
+
+    // Switching selection reflects that photo's own color, not photo 0's.
+    await page.evaluate(() => { selectedIndices = [1]; syncSliderControls(); });
+    expect(await page.locator('#borderColor').inputValue()).toBe('#ffffff');
   });
 });

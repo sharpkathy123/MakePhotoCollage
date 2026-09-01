@@ -88,6 +88,17 @@
       background: #fafafa;
     }
 
+    .border-color-input {
+      width: 100%;
+      height: 40px;
+      padding: 2px;
+      box-sizing: border-box;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: #fafafa;
+      cursor: pointer;
+    }
+
     .row {
       display: flex;
       gap: 10px;
@@ -162,7 +173,7 @@
     }
 
     /* A custom-rendered replacement for native <select> pickers, used for
-       Frame Shape and Frame Pan Behavior. iOS Safari's native <select> popup
+       Frame Shape and Frame Behavior. iOS Safari's native <select> popup
        can show a checkmark on a stale option after its value is changed by
        script (rather than by a person tapping in the popup itself), so
        these avoid the native picker entirely -- there is no OS widget here
@@ -370,7 +381,7 @@
       <div class="control">
         <label id="maskModeLabel">Frame Shape</label>
         <div class="option-group" id="maskModeGroup" role="group" aria-labelledby="maskModeLabel">
-          <button type="button" class="option-btn" data-value="none">None (Original Aspect)</button>
+          <button type="button" class="option-btn" data-value="none">Original Aspect</button>
           <button type="button" class="option-btn" data-value="square">Square (1:1)</button>
           <button type="button" class="option-btn" data-value="circle">Circle</button>
           <button type="button" class="option-btn" data-value="ellipse">Ellipse / Oval</button>
@@ -378,16 +389,20 @@
         </div>
       </div>
       <div class="control">
-        <label id="maskBehaviorLabel">Frame Pan Behavior</label>
+        <label id="maskBehaviorLabel">Frame Behavior</label>
         <div class="option-group" id="maskBehaviorGroup" role="group" aria-labelledby="maskBehaviorLabel">
-          <button type="button" class="option-btn" data-value="fixed">Fixed Window (Pan inside frame)</button>
-          <button type="button" class="option-btn" data-value="attached">Attached (Frame moves with photo)</button>
+          <button type="button" class="option-btn" data-value="fixed">Fixed Frame (photo moves behind it)</button>
+          <button type="button" class="option-btn" data-value="attached">Moving Frame (moves with the photo)</button>
         </div>
       </div>
     </div>
     <div class="control disabled" id="radiusGroup">
       <label for="cornerRadius">Corner Radius: <span id="radiusVal">30px</span></label>
       <input type="range" id="cornerRadius" min="0" max="150" value="30">
+    </div>
+    <div class="control">
+      <label for="borderColor">Border Color</label>
+      <input type="color" class="border-color-input" id="borderColor" value="#ffffff">
     </div>
   </div>
 
@@ -412,7 +427,7 @@
   <div class="section-title">3. Spacing & Colors</div>
   <div class="row">
     <div class="control">
-      <label for="innerSpacing">Photo Gap: <span id="innerSpacingVal">16px</span></label>
+      <label for="innerSpacing">Photo Border: <span id="innerSpacingVal">16px</span></label>
       <input type="range" id="innerSpacing" min="0" max="100" value="16">
     </div>
     <div class="control">
@@ -424,11 +439,7 @@
   <div class="control">
     <label>Color Target</label>
     <div class="color-target-toggle">
-      <button class="target-btn active" id="targetInnerBtn" type="button" onclick="setActiveColorTarget('inner')">
-        <span>Inner Gap</span>
-        <input type="color" class="color-picker-box" id="innerColor" value="#ffffff">
-      </button>
-      <button class="target-btn" id="targetOuterBtn" type="button" onclick="setActiveColorTarget('outer')">
+      <button class="target-btn active" id="targetOuterBtn" type="button" onclick="setActiveColorTarget('outer')">
         <span>Outer Border</span>
         <input type="color" class="color-picker-box" id="outerColor" value="#1c1c1e">
       </button>
@@ -458,7 +469,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609011600').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609011800').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -497,12 +508,11 @@
   const outerSpacing = document.getElementById('outerSpacing');
   const innerSpacingVal = document.getElementById('innerSpacingVal');
   const outerSpacingVal = document.getElementById('outerSpacingVal');
-  const innerColor = document.getElementById('innerColor');
   const outerColor = document.getElementById('outerColor');
   const canvasColor = document.getElementById('canvasColor');
-  const targetInnerBtn = document.getElementById('targetInnerBtn');
   const targetOuterBtn = document.getElementById('targetOuterBtn');
   const targetCanvasBtn = document.getElementById('targetCanvasBtn');
+  const borderColor = document.getElementById('borderColor');
   const paletteGroup = document.getElementById('paletteGroup');
   const paletteArea = document.getElementById('paletteArea');
   const layoutType = document.getElementById('layoutType');
@@ -527,8 +537,7 @@
   const multiSelectHint = document.getElementById('multiSelectHint');
 
   // Application State
-  let activeColorTarget = 'inner';
-  let innerColorVal = '#ffffff';
+  let activeColorTarget = 'outer';
   let outerColorVal = '#1c1c1e';
   // Transparent by default so existing collages don't visibly change just
   // because this control was added -- the Outer Border fill already acts
@@ -549,7 +558,7 @@
   let multiSelectMode = false;
 
   function defaultPhotoMask() {
-    return { mode: 'none', behavior: 'fixed', radius: 30 };
+    return { mode: 'none', behavior: 'fixed', radius: 30, borderColor: '#ffffff' };
   }
 
   function defaultTransform() {
@@ -599,18 +608,10 @@
 
   function setActiveColorTarget(target) {
     activeColorTarget = target;
-    targetInnerBtn.classList.toggle('active', target === 'inner');
     targetOuterBtn.classList.toggle('active', target === 'outer');
     targetCanvasBtn.classList.toggle('active', target === 'canvas');
   }
 
-  innerColor.addEventListener('input', (e) => {
-    if (activeColorTarget === 'inner') {
-      innerColorVal = e.target.value;
-      innerColor.classList.remove('transparent-active');
-      requestRender();
-    }
-  });
   outerColor.addEventListener('input', (e) => {
     if (activeColorTarget === 'outer') {
       outerColorVal = e.target.value;
@@ -627,10 +628,7 @@
   });
 
   function setTransparentColor() {
-    if (activeColorTarget === 'inner') {
-      innerColorVal = 'none';
-      innerColor.classList.add('transparent-active');
-    } else if (activeColorTarget === 'outer') {
+    if (activeColorTarget === 'outer') {
       outerColorVal = 'none';
       outerColor.classList.add('transparent-active');
     } else {
@@ -1065,7 +1063,7 @@
   // Marks whichever button in a custom option-group matches `value` as
   // active (and every other button as not), or clears all of them when
   // `value` is null -- the "Mixed" state for a multi-selection whose
-  // current values differ. Frame Shape and Frame Pan Behavior are rendered
+  // current values differ. Frame Shape and Frame Behavior are rendered
   // as these button groups instead of native <select> elements because
   // iOS Safari's native picker popup can show a checkmark on a stale
   // option after its value changes by script (rather than by a person
@@ -1105,6 +1103,7 @@
     cornerRadius.value = m.radius;
     radiusVal.textContent = `${m.radius}px`;
     radiusGroup.classList.toggle('disabled', m.mode !== 'rounded');
+    borderColor.value = m.borderColor;
 
     if (selectedIndices.length === 1) {
       selectedPhotoLabel.textContent = `Photo ${primaryIdx + 1} Selected`;
@@ -1205,6 +1204,14 @@
     requestRender();
   });
 
+  borderColor.addEventListener('input', () => {
+    const color = borderColor.value;
+    selectedIndices.forEach(idx => {
+      if (photoMasks[idx]) photoMasks[idx].borderColor = color;
+    });
+    requestRender();
+  });
+
   // Fast Feedback Listeners
   [innerSpacing, outerSpacing].forEach(el => {
     el.addEventListener('input', () => {
@@ -1298,25 +1305,35 @@
 
     // Canvas Background — the base fill behind everything, always covering
     // the full canvas regardless of Outer Border thickness. Unlike Outer
-    // Frame Background below (which only ever shows in the border strip,
-    // and only when that spacing is above 0px), this is the one control
-    // that guarantees a visible backdrop even with 0px outer spacing.
+    // Frame Background below (a ring confined to the border strip, and only
+    // when that spacing is above 0px), this is the one control that
+    // guarantees a visible backdrop even with 0px outer spacing.
     if (canvasColorVal !== 'none') {
       ctx.fillStyle = canvasColorVal;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
-    // Outer Frame Background
+    // Outer Frame Background -- painted as an actual ring (the full canvas
+    // rect minus the inner content rect, even-odd fill), not a full-canvas
+    // fill. There's no longer a guaranteed opaque layer drawn on top of the
+    // whole interior afterward (each photo's own border only covers its own
+    // mask shape, not the full rectangular cell -- e.g. a circle mask's
+    // cell corners), so a full-canvas fill here would otherwise bleed
+    // through into every gap a photo's own border doesn't reach.
     if (b > 0 && outerColorVal !== 'none') {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, canvas.width, canvas.height);
+      ctx.rect(b, b, totalW, totalH);
       ctx.fillStyle = outerColorVal;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fill('evenodd');
+      ctx.restore();
     }
 
-    // Inner Area Background
-    if (innerColorVal !== 'none') {
-      ctx.fillStyle = innerColorVal;
-      ctx.fillRect(b, b, totalW, totalH);
-    }
+    // Each photo now carries its own border (see the draw pass below,
+    // photoMask.borderColor) that hugs its own mask shape directly, instead
+    // of a single flat color filling the whole gap area -- so there's no
+    // separate Inner Area Background fill here any more.
 
     // Position Image Cells. This pass is always in load order (idx 0..N-1),
     // never in zOrder -- a photo's grid slot is a property of its own
@@ -1406,6 +1423,26 @@
       ctx.rotate(t.rot * Math.PI / 180);
 
       ctx.scale(t.frameScale, t.frameScale);
+
+      // Border: a solid backer in the same mask shape, sized a bit larger
+      // than the photo itself, drawn first so only the margin around the
+      // photo shows through -- a "mat" that hugs the photo's own mask
+      // shape and size, rather than a flat rectangle filling the whole gap
+      // (the old Inner Area Background). Sized to reach exactly to the
+      // midpoint of the gap between cells (half the gap on each side), so
+      // two adjacent photos' borders meet flush without overlapping.
+      const borderThickness = s / 2;
+      if (photoMask.borderColor && photoMask.borderColor !== 'none' && borderThickness > 0) {
+        ctx.fillStyle = photoMask.borderColor;
+        applyMaskPath(
+          ctx, photoMask.mode,
+          -maskW / 2 - borderThickness, -maskH / 2 - borderThickness,
+          maskW + borderThickness * 2, maskH + borderThickness * 2,
+          photoMask.radius + borderThickness
+        );
+        ctx.fill();
+      }
+
       applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
       ctx.clip();
 
@@ -1715,10 +1752,7 @@
       swatch.className = 'swatch';
       swatch.style.backgroundColor = col.hex;
       swatch.onclick = () => {
-        if (activeColorTarget === 'inner') {
-          innerColorVal = col.hex; innerColor.value = col.hex;
-          innerColor.classList.remove('transparent-active');
-        } else if (activeColorTarget === 'outer') {
+        if (activeColorTarget === 'outer') {
           outerColorVal = col.hex; outerColor.value = col.hex;
           outerColor.classList.remove('transparent-active');
         } else {
