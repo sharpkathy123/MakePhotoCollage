@@ -155,6 +155,97 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     expect(t.scale).toBe(1.6); // untouched, preserved from the earlier Fixed-mode use
   });
 
+  // Regression test: the Rotate slider used to always write to `rot`
+  // regardless of mode, which -- because `rot` also rotates the frame/mask
+  // (see renderCollage) -- meant rotating a Fixed-mode ("Fixed Window")
+  // photo visibly rotated the window itself too, indistinguishable from
+  // Attached. Fixed mode is supposed to be a stationary window with the
+  // photo free to move behind it, so it needs its own content-only
+  // rotation field (panRot), exactly like scale/frameScale above.
+  test('the Rotate slider updates panRot in Fixed mode and rot in Attached mode, leaving the other field untouched', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.evaluate(() => { photoMasks[0].behavior = 'fixed'; });
+
+    await page.fill('#modRotate', '20');
+    await page.dispatchEvent('#modRotate', 'input');
+    await page.waitForTimeout(50);
+    let t = await page.evaluate(() => ({ ...transforms[0] }));
+    expect(t.panRot).toBe(20);
+    expect(t.rot).toBe(0);
+
+    await clickOption(page, '#maskBehaviorGroup', 'attached');
+    await page.fill('#modRotate', '65');
+    await page.dispatchEvent('#modRotate', 'input');
+    await page.waitForTimeout(50);
+    t = await page.evaluate(() => ({ ...transforms[0] }));
+    expect(t.rot).toBe(65);
+    expect(t.panRot).toBe(20); // untouched, preserved from the earlier Fixed-mode use
+  });
+
+  // Regression test (the actual bug report): in Fixed mode, rotating must
+  // spin only the photo content -- the frame/mask itself must never turn.
+  // Verified two ways at once: sampling points near the clip rectangle's
+  // corners, which a rotated wide image uncovers (proving content actually
+  // rotated) while points just outside the (still axis-aligned) rectangle
+  // stay background throughout (proving the frame itself never rotated,
+  // grew, or moved).
+  test('in Fixed mode, the Rotate slider spins the photo content but leaves the frame/mask stationary', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.selectOption('#layoutType', 'horizontal');
+    await page.waitForFunction(() => layoutType.value === 'horizontal');
+    await page.evaluate(() => { photoMasks[0].behavior = 'fixed'; });
+
+    const points = await page.evaluate(() => {
+      const b = cellBounds[0];
+      return {
+        topLeftCorner: [Math.round(b.x + 5), Math.round(b.y + 5)],
+        topRightCorner: [Math.round(b.x + b.w - 5), Math.round(b.y + 5)],
+        bottomLeftCorner: [Math.round(b.x + 5), Math.round(b.y + b.h - 5)],
+        outsideLeft: [Math.max(0, b.x - 5), Math.round(b.y + b.h / 2)],
+        outsideTop: [Math.round(b.x + b.w / 2), Math.max(0, b.y - 5)],
+      };
+    });
+
+    // Deselect first -- these sample points sit right along the frame's own
+    // boundary, which the selection outline strokes directly over, so
+    // leaving the photo selected would tint them with outline color instead
+    // of the true rendered content/background underneath.
+    await page.click('button:text("Deselect All")');
+    await page.waitForTimeout(100);
+    // The three inner-corner points start fully covered by the unrotated
+    // photo; the two outside points are outside the frame and start (and
+    // must always stay) background.
+    for (const key of ['topLeftCorner', 'topRightCorner', 'bottomLeftCorner']) {
+      expect(await samplePixel(page, ...points[key])).toEqual([220, 60, 60, 255]);
+    }
+    for (const key of ['outsideLeft', 'outsideTop']) {
+      expect(await samplePixel(page, ...points[key])).toEqual([255, 255, 255, 255]);
+    }
+
+    // Re-select so the Rotate slider (which only applies to whatever's
+    // currently selected) has a photo to act on, then deselect again before
+    // sampling for the same reason as above.
+    await page.click('button:text("Select All")');
+    await page.fill('#modRotate', '30');
+    await page.dispatchEvent('#modRotate', 'input');
+    await page.click('button:text("Deselect All")');
+    await page.waitForTimeout(50);
+
+    // The corners are no longer covered -- content actually rotated away
+    // from them, uncovering the white Inner Gap background underneath.
+    expect(await samplePixel(page, ...points.topLeftCorner)).toEqual([255, 255, 255, 255]);
+    expect(await samplePixel(page, ...points.topRightCorner)).toEqual([255, 255, 255, 255]);
+    expect(await samplePixel(page, ...points.bottomLeftCorner)).toEqual([255, 255, 255, 255]);
+    // Just outside the (still axis-aligned) frame: never covered, whether
+    // rotated or not -- proves the frame itself stayed put.
+    expect(await samplePixel(page, ...points.outsideLeft)).toEqual([255, 255, 255, 255]);
+    expect(await samplePixel(page, ...points.outsideTop)).toEqual([255, 255, 255, 255]);
+    // The frame/mask's own rotation field never moved.
+    expect(await page.evaluate(() => transforms[0].rot)).toBe(0);
+  });
+
   // Regression test: hit-testing used to check taps only against each
   // photo's nominal, undragged grid-slot rectangle. In Attached mode,
   // dragging moves the frame's actual rendered position away from that
