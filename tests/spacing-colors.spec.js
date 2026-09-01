@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos, samplePixel, setColorInput } = require('./helpers');
+const { FIXTURES, loadPhotos, samplePixel, setColorInput, clickOption } = require('./helpers');
 
 test.describe('Spacing & colors', () => {
   test('outer spacing slider changes the outer border thickness in the render', async ({ page }) => {
@@ -26,7 +26,7 @@ test.describe('Spacing & colors', () => {
   test('inner spacing slider changes the gap between photos', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.greenSquare, FIXTURES.yellowSquare]);
-    await page.selectOption('#layoutType', 'horizontal');
+    await clickOption(page, '#layoutTypeGroup', 'horizontal');
     await page.waitForTimeout(100);
 
     await page.fill('#innerSpacing', '10');
@@ -113,5 +113,23 @@ test.describe('Spacing & colors', () => {
     await page.waitForTimeout(100);
     const clearedPixel = await samplePixel(page, 2, 2);
     expect(clearedPixel[3]).toBe(0);
+  });
+
+  // Regression test: a palette swatch click always applies to whichever
+  // Color Target is currently active, but nothing on screen said which one
+  // -- just a small highlight on one of three buttons. A caption above the
+  // palette now names it explicitly.
+  test('the Sampled Palette caption names the currently active Color Target', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+
+    // Outer Border is the default active target.
+    await expect(page.locator('#paletteTargetLabel')).toContainText('Outer Border');
+
+    await page.click('#targetCanvasBtn');
+    await expect(page.locator('#paletteTargetLabel')).toContainText('Canvas Background');
+
+    await page.click('#targetBorderBtn');
+    await expect(page.locator('#paletteTargetLabel')).toContainText('Photo Border Color');
   });
 });

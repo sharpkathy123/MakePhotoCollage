@@ -114,7 +114,9 @@
       background-color: #e5e5ea;
       color: #1c1c1e;
       border: 1px solid var(--border-color);
-      padding: 8px 10px;
+      padding: 12px 14px;
+      min-height: 44px;
+      box-sizing: border-box;
       border-radius: 8px;
       font-size: 0.8rem;
       font-weight: 600;
@@ -142,7 +144,9 @@
     .target-btn {
       flex: 1 1 auto;
       min-width: 130px;
-      padding: 8px 10px;
+      padding: 12px 14px;
+      min-height: 44px;
+      box-sizing: border-box;
       border: 2px solid var(--border-color);
       border-radius: 8px;
       background: #fafafa;
@@ -161,6 +165,11 @@
       color: var(--accent-color);
     }
 
+    .target-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
     /* A custom-rendered replacement for native <select> pickers, used for
        Frame Shape and Frame Behavior. iOS Safari's native <select> popup
        can show a checkmark on a stale option after its value is changed by
@@ -176,7 +185,9 @@
     .option-btn {
       flex: 1 1 calc(50% - 6px);
       min-width: 90px;
-      padding: 8px 10px;
+      padding: 12px 10px;
+      min-height: 44px;
+      box-sizing: border-box;
       border: 2px solid var(--border-color);
       border-radius: 8px;
       background: #fafafa;
@@ -318,6 +329,19 @@
       flex-shrink: 0;
       white-space: nowrap;
     }
+
+    .info-toggle-btn {
+      flex-shrink: 0;
+      width: 44px;
+      min-width: 44px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: #fafafa;
+      color: var(--accent-color);
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -330,8 +354,9 @@
     <div class="photo-source-row">
       <input type="file" id="imgInput" accept="image/*" multiple>
       <button class="btn-secondary" type="button" id="gphotosImportBtn" onclick="importFromGooglePhotos()">📷 Google Photos</button>
+      <button type="button" class="info-toggle-btn" id="gphotosInfoBtn" onclick="toggleGphotosInfo()" aria-expanded="false" aria-label="About Google Photos import" title="About Google Photos import">ⓘ</button>
     </div>
-    <div style="font-size:0.7rem; color:#8e8e93; margin-top:4px;">Google Photos import only works for accounts approved in the README's setup steps — not submitted for Google's public review.</div>
+    <div id="gphotosInfo" hidden style="font-size:0.7rem; color:#8e8e93; margin-top:4px;">Google Photos import only works for accounts approved in the README's setup steps — not submitted for Google's public review.</div>
     <button class="btn-secondary" type="button" id="gphotosOpenPickerBtn" onclick="openGooglePhotosPickerTab()" style="display:none; width:100%; margin-top:6px;">🔗 Tap to Open Google Photos</button>
     <button class="btn-secondary" type="button" id="startNewBtn" onclick="startNewCollage()" style="display:none; width:100%; margin-top:6px;">🗑️ Start New Collage</button>
   </div>
@@ -394,12 +419,12 @@
   <div class="section-title">2. Layout & Columns</div>
   <div class="row">
     <div class="control">
-      <label for="layoutType">Arrangement</label>
-      <select id="layoutType">
-        <option value="grid">Grid</option>
-        <option value="horizontal">Horizontal Strip</option>
-        <option value="vertical">Vertical Feed</option>
-      </select>
+      <label id="layoutTypeLabel">Arrangement</label>
+      <div class="option-group" id="layoutTypeGroup" role="group" aria-labelledby="layoutTypeLabel">
+        <button type="button" class="option-btn active" data-value="grid">Grid</button>
+        <button type="button" class="option-btn" data-value="horizontal">Horizontal Strip</button>
+        <button type="button" class="option-btn" data-value="vertical">Vertical Feed</button>
+      </div>
     </div>
     <div class="control disabled" id="gridColsGroup">
       <label for="gridCols">Columns</label>
@@ -412,11 +437,11 @@
   <div class="section-title">3. Spacing & Colors</div>
   <div class="row">
     <div class="control">
-      <label for="innerSpacing">Photo Border: <span id="innerSpacingVal">16px</span></label>
+      <label for="innerSpacing">Photo Spacing (sets border thickness): <span id="innerSpacingVal">16px</span></label>
       <input type="range" id="innerSpacing" min="0" max="100" value="16">
     </div>
     <div class="control">
-      <label for="outerSpacing">Outer Border: <span id="outerSpacingVal">24px</span></label>
+      <label for="outerSpacing">Outer Spacing: <span id="outerSpacingVal">24px</span></label>
       <input type="range" id="outerSpacing" min="0" max="150" value="24">
     </div>
   </div>
@@ -440,7 +465,7 @@
   </div>
 
   <div class="control disabled" id="paletteGroup">
-    <label>Sampled Palette:</label>
+    <label>Sampled Palette <span id="paletteTargetLabel" style="font-weight:400; color:#8e8e93;"></span>:</label>
     <div class="palette-container">
       <div class="palette-swatches" id="paletteArea">
         <div class="swatch-none" title="Transparent" onclick="setTransparentColor()">None</div>
@@ -460,7 +485,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609012000').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609012100').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -507,7 +532,8 @@
   const borderColor = document.getElementById('borderColor');
   const paletteGroup = document.getElementById('paletteGroup');
   const paletteArea = document.getElementById('paletteArea');
-  const layoutType = document.getElementById('layoutType');
+  const paletteTargetLabel = document.getElementById('paletteTargetLabel');
+  const layoutTypeGroup = document.getElementById('layoutTypeGroup');
   const gridCols = document.getElementById('gridCols');
   const gridColsGroup = document.getElementById('gridColsGroup');
   const maskModeGroup = document.getElementById('maskModeGroup');
@@ -529,6 +555,7 @@
   const multiSelectHint = document.getElementById('multiSelectHint');
 
   // Application State
+  let layoutType = 'grid';
   let activeColorTarget = 'outer';
   let outerColorVal = '#1c1c1e';
   // Transparent by default so existing collages don't visibly change just
@@ -598,11 +625,14 @@
   let initialPinchDist = null;
   let animFrameId = null;
 
+  const COLOR_TARGET_NAMES = { outer: 'Outer Border', canvas: 'Canvas Background', border: 'Photo Border Color' };
+
   function setActiveColorTarget(target) {
     activeColorTarget = target;
     targetOuterBtn.classList.toggle('active', target === 'outer');
     targetCanvasBtn.classList.toggle('active', target === 'canvas');
     targetBorderBtn.classList.toggle('active', target === 'border');
+    paletteTargetLabel.textContent = `(applying to: ${COLOR_TARGET_NAMES[target]})`;
   }
 
   outerColor.addEventListener('input', (e) => {
@@ -636,16 +666,25 @@
     requestRender();
   }
 
-  // Pure Smart Grid Column Calculator
+  // Sets the current layout type, keeping the Arrangement button group's
+  // highlighted button in sync -- same pattern as setActiveColorTarget.
+  function setLayoutType(value) {
+    layoutType = value;
+    setActiveOption(layoutTypeGroup, value);
+  }
+
+  // Smart Grid Column Calculator -- also picks the layout type (Horizontal
+  // Strip for 3 or 5 photos, Grid otherwise), so despite the name this
+  // isn't a pure function of itemCount alone; it has that one side effect.
   function computeOptimalColumns(itemCount) {
     if (!itemCount || itemCount <= 0) return 1;
 
     if (itemCount === 3 || itemCount === 5) {
-      layoutType.value = 'horizontal';
+      setLayoutType('horizontal');
       return itemCount;
     }
 
-    layoutType.value = 'grid';
+    setLayoutType('grid');
 
     const maxCols = itemCount > 25 ? Math.ceil(Math.sqrt(itemCount)) : Math.min(5, itemCount);
     let bestCols = 1;
@@ -688,7 +727,7 @@
   }
 
   function updateUI() {
-    const isGrid = layoutType.value === 'grid';
+    const isGrid = layoutType === 'grid';
     gridCols.disabled = !isGrid || !rawImages.length;
     gridColsGroup.classList.toggle('disabled', !isGrid || !rawImages.length);
   }
@@ -944,6 +983,13 @@
   // in direct response to a second click (see openGooglePhotosPickerTab),
   // since by the time the session exists we're several `await`s removed
   // from this click and a window.open() here would risk being blocked.
+  function toggleGphotosInfo() {
+    const info = document.getElementById('gphotosInfo');
+    const btn = document.getElementById('gphotosInfoBtn');
+    info.hidden = !info.hidden;
+    btn.setAttribute('aria-expanded', String(!info.hidden));
+  }
+
   async function importFromGooglePhotos() {
     const clientId = getGooglePhotosClientId();
     if (!clientId) return;
@@ -1021,18 +1067,21 @@
     }
   }
 
-  layoutType.addEventListener('change', () => {
-    // An Attached-mode photo's x/y is a raw pixel nudge relative to its own
-    // cell -- meaningful within one arrangement, but Grid/Horizontal
-    // Strip/Vertical Feed place cells completely differently, so the same
-    // offset lands somewhere arbitrary (visibly misaligned, cropped, or
-    // overlapping a neighbor) after switching. Reset it on every layout
-    // change rather than carry over a nudge that no longer means anything.
-    // Fixed-mode photos are untouched either way -- their x/y is already
-    // always 0, since dragging them updates panX/panY instead.
-    transforms.forEach(t => { t.x = 0; t.y = 0; });
-    updateUI();
-    requestRender();
+  layoutTypeGroup.querySelectorAll('.option-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setLayoutType(btn.dataset.value);
+      // An Attached-mode photo's x/y is a raw pixel nudge relative to its
+      // own cell -- meaningful within one arrangement, but Grid/Horizontal
+      // Strip/Vertical Feed place cells completely differently, so the same
+      // offset lands somewhere arbitrary (visibly misaligned, cropped, or
+      // overlapping a neighbor) after switching. Reset it on every layout
+      // change rather than carry over a nudge that no longer means anything.
+      // Fixed-mode photos are untouched either way -- their x/y is already
+      // always 0, since dragging them updates panX/panY instead.
+      transforms.forEach(t => { t.x = 0; t.y = 0; });
+      updateUI();
+      requestRender();
+    });
   });
 
   gridCols.addEventListener('change', (e) => {
@@ -1096,6 +1145,16 @@
   }
 
   function syncSliderControls() {
+    // Photo Border Color applies to whatever's currently selected -- with
+    // nothing selected it would silently no-op (both the picker input and
+    // a palette swatch click), so disable it entirely rather than leave it
+    // clickable with no visible effect. Falls back to the Outer Border
+    // target if it was the active one when the selection emptied out.
+    targetBorderBtn.disabled = !selectedIndices.length;
+    if (!selectedIndices.length && activeColorTarget === 'border') {
+      setActiveColorTarget('outer');
+    }
+
     if (!selectedIndices.length) {
       selectedPhotoLabel.textContent = "No Photos Selected";
       // Clear any highlighted Frame Shape/Behavior button left over from
@@ -1272,7 +1331,7 @@
 
     const s = parseInt(innerSpacing.value, 10) || 0;
     const b = parseInt(outerSpacing.value, 10) || 0;
-    const layout = layoutType.value;
+    const layout = layoutType;
     
     const cols = Math.max(1, activeCols || 1);
     const rows = Math.max(1, Math.ceil(rawImages.length / cols));
@@ -1859,6 +1918,7 @@
   }
 
   updateUI();
+  setActiveColorTarget('outer'); // populates the palette's "applying to" caption for the initial default target
 </script>
 
 </body>

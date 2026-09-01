@@ -107,4 +107,24 @@ test.describe('Google Photos import', () => {
     await expect(page.locator('#gphotosImportBtn')).toBeEnabled();
     await expect(page.locator('#gphotosImportBtn')).toHaveText('📷 Google Photos');
   });
+
+  // Regression test: the disclaimer about approved-accounts-only used to
+  // show unconditionally to every visitor, right under the primary file
+  // picker -- dev-audience content occupying prime first-load real estate
+  // for the ~100% of users who'll never touch Google Photos import. It's
+  // now hidden by default and revealed on demand via a small info toggle.
+  test('the Google Photos disclaimer is hidden by default and toggled by the info button', async ({ page }) => {
+    await page.goto('/index.html');
+
+    await expect(page.locator('#gphotosInfo')).toBeHidden();
+    await expect(page.locator('#gphotosInfoBtn')).toHaveAttribute('aria-expanded', 'false');
+
+    await page.click('#gphotosInfoBtn');
+    await expect(page.locator('#gphotosInfo')).toBeVisible();
+    await expect(page.locator('#gphotosInfo')).toContainText('README');
+    await expect(page.locator('#gphotosInfoBtn')).toHaveAttribute('aria-expanded', 'true');
+
+    await page.click('#gphotosInfoBtn');
+    await expect(page.locator('#gphotosInfo')).toBeHidden();
+  });
 });

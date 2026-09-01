@@ -256,4 +256,28 @@ test.describe('Per-photo masks', () => {
     const center = await samplePixel(page, bounds.x + bounds.w / 2, bounds.y + bounds.h / 2);
     expect(center).toEqual([220, 60, 60, 255]); // still rendered, not clipped away
   });
+
+  // Regression test: Photo Border Color applies to whatever's currently
+  // selected -- with nothing selected, both its picker input and a palette
+  // swatch click used to silently no-op with no visible sign why. It's now
+  // disabled outright whenever there's no selection to apply to.
+  test('the Photo Border Color target is disabled when nothing is selected, and falls back to Outer Border', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+
+    await expect(page.locator('#targetBorderBtn')).toBeEnabled();
+
+    await page.click('#targetBorderBtn');
+    expect(await page.evaluate(() => activeColorTarget)).toBe('border');
+
+    await page.click('button:text("Deselect All")');
+
+    await expect(page.locator('#targetBorderBtn')).toBeDisabled();
+    // It was the active target when the selection emptied out -- falls
+    // back to Outer Border rather than staying active-but-unusable.
+    expect(await page.evaluate(() => activeColorTarget)).toBe('outer');
+
+    await page.click('button:text("Select All")');
+    await expect(page.locator('#targetBorderBtn')).toBeEnabled();
+  });
 });

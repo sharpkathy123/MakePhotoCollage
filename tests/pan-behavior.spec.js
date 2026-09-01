@@ -193,8 +193,8 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
   test('in Fixed mode, the Rotate slider spins the photo content but leaves the frame/mask stationary', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
-    await page.selectOption('#layoutType', 'horizontal');
-    await page.waitForFunction(() => layoutType.value === 'horizontal');
+    await clickOption(page, '#layoutTypeGroup', 'horizontal');
+    await page.waitForFunction(() => layoutType === 'horizontal');
     await page.evaluate(() => { photoMasks[0].behavior = 'fixed'; });
 
     const points = await page.evaluate(() => {

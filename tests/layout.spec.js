@@ -1,12 +1,12 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos } = require('./helpers');
+const { FIXTURES, loadPhotos, clickOption } = require('./helpers');
 
 test.describe('Layout & cell sizing', () => {
   test('grid layout keeps every cell a uniform 600x600 square, even with mixed aspect ratios', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait, FIXTURES.greenSquare, FIXTURES.yellowSquare]);
 
-    const layout = await page.evaluate(() => layoutType.value);
+    const layout = await page.evaluate(() => layoutType);
     expect(layout).toBe('grid'); // 4 photos auto-picks grid, not the 3/5-photo horizontal special case
 
     const bounds = await page.evaluate(() => cellBounds.map((b) => ({ w: b.w, h: b.h })));
@@ -19,8 +19,8 @@ test.describe('Layout & cell sizing', () => {
   test('horizontal strip layout sizes each cell to its own photo aspect ratio when unmasked', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
-    await page.selectOption('#layoutType', 'horizontal');
-    await page.waitForFunction(() => layoutType.value === 'horizontal');
+    await clickOption(page, '#layoutTypeGroup', 'horizontal');
+    await page.waitForFunction(() => layoutType === 'horizontal');
 
     const bounds = await page.evaluate(() => cellBounds.map((b) => ({ w: b.w, h: b.h })));
     // redLandscape is 300x180 (aspect 5:3) -> width = round(600 * 5/3) = 1000, height = 600
@@ -32,7 +32,7 @@ test.describe('Layout & cell sizing', () => {
   test('a photo masked to square/circle always gets a fixed 600x600 cell in horizontal layout, regardless of its own aspect ratio', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
-    await page.selectOption('#layoutType', 'horizontal');
+    await clickOption(page, '#layoutTypeGroup', 'horizontal');
     await page.evaluate(() => {
       photoMasks[0].mode = 'circle';
       photoMasks[1].mode = 'none';
@@ -76,8 +76,8 @@ test.describe('Layout & cell sizing', () => {
       transforms[1].panY = 15;
     });
 
-    await page.selectOption('#layoutType', 'vertical');
-    await page.waitForFunction(() => layoutType.value === 'vertical');
+    await clickOption(page, '#layoutTypeGroup', 'vertical');
+    await page.waitForFunction(() => layoutType === 'vertical');
 
     const after = await page.evaluate(() => ({
       t0: { ...transforms[0] },
