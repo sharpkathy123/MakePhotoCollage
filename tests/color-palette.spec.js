@@ -39,4 +39,41 @@ test.describe('Sampled color palette', () => {
     const target = await page.evaluate(() => outerColorVal);
     expect(target).toBe('none');
   });
+
+  // Regression test: a photo's own sampled colors don't always happen to
+  // include anything near black or white (e.g. this solid-red fixture has
+  // neither), but both are common, useful choices for a border or
+  // background -- they're always added to the palette if nothing already
+  // sampled is close enough to either.
+  test('the palette always includes black and white, even when nothing sampled is close to either', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]); // solid (220, 60, 60) -- nowhere near black or white
+    await page.waitForTimeout(100);
+
+    const swatchColors = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('#paletteArea .swatch')).map(el => el.style.backgroundColor)
+    );
+    expect(swatchColors).toContain('rgb(0, 0, 0)');
+    expect(swatchColors).toContain('rgb(255, 255, 255)');
+  });
+
+  test('clicking a palette swatch while Photo Border Color is the active target applies to the selected photo(s)', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await page.waitForTimeout(100);
+    await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
+
+    await page.click('#targetBorderBtn');
+    await page.locator('#paletteArea .swatch').first().click();
+    await page.waitForTimeout(50);
+
+    const colors = await page.evaluate(() => photoMasks.map((m) => m.borderColor));
+    expect(colors[0]).not.toBe('#ffffff'); // changed from the default
+    expect(colors[1]).toBe('#ffffff'); // untouched -- not selected
+
+    // Outer Border and Canvas Background are untouched by a Photo Border
+    // Color swatch click -- it's a per-photo target, not a global one.
+    expect(await page.evaluate(() => outerColorVal)).toBe('#1c1c1e');
+    expect(await page.evaluate(() => canvasColorVal)).toBe('none');
+  });
 });

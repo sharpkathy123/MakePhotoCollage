@@ -207,6 +207,10 @@ test.describe('Per-photo masks', () => {
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
     await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
 
+    // Photo Border Color is one of three Color Target buttons now (Outer
+    // Border and Canvas Background are the others) -- it must be the active
+    // target before its picker input takes effect, same as those two.
+    await page.click('#targetBorderBtn');
     await setColorInput(page, '#borderColor', '#00aaff');
     await page.waitForTimeout(50);
 

@@ -88,17 +88,6 @@
       background: #fafafa;
     }
 
-    .border-color-input {
-      width: 100%;
-      height: 40px;
-      padding: 2px;
-      box-sizing: border-box;
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      background: #fafafa;
-      cursor: pointer;
-    }
-
     .row {
       display: flex;
       gap: 10px;
@@ -400,10 +389,6 @@
       <label for="cornerRadius">Corner Radius: <span id="radiusVal">30px</span></label>
       <input type="range" id="cornerRadius" min="0" max="150" value="30">
     </div>
-    <div class="control">
-      <label for="borderColor">Border Color</label>
-      <input type="color" class="border-color-input" id="borderColor" value="#ffffff">
-    </div>
   </div>
 
   <div class="section-title">2. Layout & Columns</div>
@@ -447,6 +432,10 @@
         <span>Canvas Background</span>
         <input type="color" class="color-picker-box" id="canvasColor" value="#f2f2f7">
       </button>
+      <button class="target-btn" id="targetBorderBtn" type="button" onclick="setActiveColorTarget('border')">
+        <span>Photo Border Color</span>
+        <input type="color" class="color-picker-box" id="borderColor" value="#ffffff">
+      </button>
     </div>
   </div>
 
@@ -469,7 +458,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609011800').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609011900').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -512,6 +501,7 @@
   const canvasColor = document.getElementById('canvasColor');
   const targetOuterBtn = document.getElementById('targetOuterBtn');
   const targetCanvasBtn = document.getElementById('targetCanvasBtn');
+  const targetBorderBtn = document.getElementById('targetBorderBtn');
   const borderColor = document.getElementById('borderColor');
   const paletteGroup = document.getElementById('paletteGroup');
   const paletteArea = document.getElementById('paletteArea');
@@ -610,6 +600,7 @@
     activeColorTarget = target;
     targetOuterBtn.classList.toggle('active', target === 'outer');
     targetCanvasBtn.classList.toggle('active', target === 'canvas');
+    targetBorderBtn.classList.toggle('active', target === 'border');
   }
 
   outerColor.addEventListener('input', (e) => {
@@ -631,9 +622,14 @@
     if (activeColorTarget === 'outer') {
       outerColorVal = 'none';
       outerColor.classList.add('transparent-active');
-    } else {
+    } else if (activeColorTarget === 'canvas') {
       canvasColorVal = 'none';
       canvasColor.classList.add('transparent-active');
+    } else {
+      selectedIndices.forEach(idx => {
+        if (photoMasks[idx]) photoMasks[idx].borderColor = 'none';
+      });
+      borderColor.classList.add('transparent-active');
     }
     requestRender();
   }
@@ -1205,10 +1201,12 @@
   });
 
   borderColor.addEventListener('input', () => {
+    if (activeColorTarget !== 'border') return;
     const color = borderColor.value;
     selectedIndices.forEach(idx => {
       if (photoMasks[idx]) photoMasks[idx].borderColor = color;
     });
+    borderColor.classList.remove('transparent-active');
     requestRender();
   });
 
@@ -1741,12 +1739,30 @@
       }
     });
 
+    // Black and white are common, useful border/background choices that a
+    // photo's own sampled colors won't always happen to include (e.g. a
+    // bright beach photo might have nothing near either extreme) -- add
+    // them explicitly whenever nothing already sampled is close enough.
+    [
+      { hex: '#000000', r: 0, g: 0, b: 0, h: 0, s: 0, l: 0 },
+      { hex: '#ffffff', r: 255, g: 255, b: 255, h: 0, s: 0, l: 100 },
+    ].forEach(anchor => {
+      if (!unique.some(u => Math.hypot(u.r - anchor.r, u.g - anchor.g, u.b - anchor.b) < 35)) {
+        unique.push(anchor);
+      }
+    });
+
     unique.sort((a, b) => {
       if (Math.abs(a.h - b.h) > 15) return a.h - b.h;
       if (Math.abs(a.s - b.s) > 15) return b.s - a.s;
       return b.l - a.l;
     });
 
+    // The Sampled Palette is shared by all three Color Target buttons
+    // (Outer Border, Canvas Background, Photo Border Color) -- a swatch
+    // click always paints whichever one is currently active. The first two
+    // are single collage-wide values; Photo Border Color instead applies to
+    // every currently selected photo, same as its own picker input does.
     unique.forEach(col => {
       const swatch = document.createElement('div');
       swatch.className = 'swatch';
@@ -1755,9 +1771,15 @@
         if (activeColorTarget === 'outer') {
           outerColorVal = col.hex; outerColor.value = col.hex;
           outerColor.classList.remove('transparent-active');
-        } else {
+        } else if (activeColorTarget === 'canvas') {
           canvasColorVal = col.hex; canvasColor.value = col.hex;
           canvasColor.classList.remove('transparent-active');
+        } else {
+          selectedIndices.forEach(idx => {
+            if (photoMasks[idx]) photoMasks[idx].borderColor = col.hex;
+          });
+          borderColor.value = col.hex;
+          borderColor.classList.remove('transparent-active');
         }
         requestRender();
       };
