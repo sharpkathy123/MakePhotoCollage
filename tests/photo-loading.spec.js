@@ -65,4 +65,33 @@ test.describe('Loading photos', () => {
     expect(firstMask.mode).toBe('none');
     expect(firstMask.behavior).toBe('fixed');
   });
+
+  // Regression test: one corrupt file used to discard the whole batch
+  // silently (Promise.all rejects as a whole) -- the photos that decode
+  // fine now still get added, with an alert() naming how many failed.
+  test('a corrupt file among several does not block the others from loading, and alerts about the failure', async ({ page }) => {
+    await page.goto('/index.html');
+    let alertMessage = null;
+    page.on('dialog', async (dialog) => { alertMessage = dialog.message(); await dialog.accept(); });
+
+    await page.setInputFiles('#imgInput', [FIXTURES.redLandscape, FIXTURES.corrupt, FIXTURES.bluePortrait]);
+    await page.waitForFunction(() => typeof rawImages !== 'undefined' && rawImages.length === 2);
+
+    expect(await page.evaluate(() => rawImages.length)).toBe(2);
+    await expect(page.locator('#saveBtn')).toBeEnabled();
+    expect(alertMessage).toContain('1 of 3');
+  });
+
+  test('a batch that is entirely corrupt files loads nothing and alerts, rather than failing silently', async ({ page }) => {
+    await page.goto('/index.html');
+    let alertMessage = null;
+    page.on('dialog', async (dialog) => { alertMessage = dialog.message(); await dialog.accept(); });
+
+    await page.setInputFiles('#imgInput', [FIXTURES.corrupt]);
+    await page.waitForTimeout(300);
+
+    expect(await page.evaluate(() => rawImages.length)).toBe(0);
+    await expect(page.locator('#saveBtn')).toBeDisabled();
+    expect(alertMessage).toBeTruthy();
+  });
 });

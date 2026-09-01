@@ -414,4 +414,51 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
 
     expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0]);
   });
+
+  // Regression test: hit-testing used to check taps against an
+  // axis-aligned box built from cellBounds/frameScale only, never
+  // accounting for t.rot -- even though renderCollage does rotate the
+  // frame/mask itself. For a rotated square frame (a diamond on screen),
+  // that left real gaps between what's visibly tappable and what the code
+  // thought was tappable, in both directions.
+  test('hit-testing accounts for the frame\'s own rotation, not just its position and scale', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    // Extra outer spacing so the rotated diamond's vertices (which reach
+    // out to roughly 300*sqrt(2) =~ 424px from center, well past the
+    // unrotated square's own 300px half-width) still land inside the
+    // canvas -- otherwise the cardinal-direction tap point below would
+    // fall outside the canvas entirely with the default 24px margin.
+    await page.fill('#outerSpacing', '120');
+    await page.dispatchEvent('#outerSpacing', 'input');
+    await page.evaluate(() => {
+      photoMasks[0].mode = 'square'; // cover-mode: mask exactly matches the 600x600 cell
+      photoMasks[0].behavior = 'attached'; // rotating writes to t.rot, the frame's own rotation
+      transforms[0].rot = 45;
+      requestRender();
+    });
+    await page.waitForTimeout(100);
+
+    async function tapAndGetSelection(offsetX, offsetY) {
+      await page.evaluate(() => { selectedIndices = []; syncSliderControls(); });
+      const point = await page.evaluate(({ offsetX, offsetY }) => {
+        const b = cellBounds[0];
+        return { x: b.x + b.w / 2 + offsetX, y: b.y + b.h / 2 + offsetY };
+      }, { offsetX, offsetY });
+      const viewportPoint = await appPointToViewport(page, point.x, point.y);
+      await page.mouse.click(viewportPoint.x, viewportPoint.y);
+      return page.evaluate(() => selectedIndices.slice());
+    }
+
+    // (295, 295): inside the OLD unrotated 600x600 box (near its corner),
+    // but the frame is now a diamond -- its edge, not a corner, faces this
+    // direction, so the rotated shape doesn't actually reach this point.
+    expect(await tapAndGetSelection(295, 295)).toEqual([]);
+
+    // (350, 0): outside the OLD unrotated box entirely (300px half-width),
+    // but a vertex of the rotated diamond now points along this cardinal
+    // direction and reaches out to roughly 300*sqrt(2) =~ 424px -- so this
+    // point is genuinely covered by the visible, rotated frame.
+    expect(await tapAndGetSelection(350, 0)).toEqual([0]);
+  });
 });

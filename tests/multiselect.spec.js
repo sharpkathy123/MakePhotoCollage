@@ -25,6 +25,24 @@ test.describe('Selection', () => {
     expect(await page.evaluate(() => selectedIndices.slice())).toEqual([]);
   });
 
+  // Regression test: deselectAllPhotos used to set the "No Photos Selected"
+  // label directly instead of calling syncSliderControls() the way
+  // selectAllPhotos() does -- leaving the Frame Shape/Behavior buttons
+  // showing whichever photo was selected before, with no visual sign
+  // nothing is selected any more.
+  test('Deselect All clears the Frame Shape/Behavior highlighting, not just the selection', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.evaluate(() => { photoMasks[0].mode = 'circle'; syncSliderControls(); });
+
+    expect(await page.locator('#maskModeGroup .option-btn.active').count()).toBe(1);
+
+    await page.click('button:text("Deselect All")');
+
+    expect(await page.locator('#maskModeGroup .option-btn.active').count()).toBe(0);
+    await expect(page.locator('#selectedPhotoLabel')).toHaveText('No Photos Selected');
+  });
+
   test('multi-select mode: clicking adds/removes photos one at a time', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait, FIXTURES.greenSquare]);

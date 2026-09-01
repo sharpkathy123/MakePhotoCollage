@@ -456,9 +456,11 @@
 </div>
 
 <script>
+  'use strict';
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609011900').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609012000').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -762,18 +764,33 @@
     const files = Array.from(e.target.files);
     if (!files.length) return;
 
-    try {
-      const images = await Promise.all(files.map(file => {
-        return new Promise((resolve, reject) => {
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.onerror = () => reject(new Error('Failed to load image file'));
-          img.src = URL.createObjectURL(file);
-        });
-      }));
-      applyNewImageSet(images, { append: true });
-    } catch (err) {
-      console.error('Error loading uploaded photos:', err);
+    // One corrupt/unsupported file used to discard the entire batch
+    // silently (Promise.all rejects as a whole, caught and only
+    // console.error'd) -- allSettled instead loads whichever files
+    // actually decode, and alert()s about the rest, matching how the
+    // Google Photos import path already surfaces its own failures.
+    const results = await Promise.allSettled(files.map(file => {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`Failed to load image file "${file.name}"`));
+        img.src = URL.createObjectURL(file);
+      });
+    }));
+
+    const images = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    const failures = results.filter(r => r.status === 'rejected');
+
+    if (images.length) applyNewImageSet(images, { append: true });
+
+    if (failures.length) {
+      failures.forEach(f => console.error('Error loading uploaded photo:', f.reason));
+      const count = failures.length;
+      alert(
+        count === files.length
+          ? `Could not load ${count === 1 ? 'that photo' : 'those photos'}. Please try a different file.`
+          : `${count} of ${files.length} photos could not be loaded and were skipped. The rest were added.`
+      );
     }
   });
 
@@ -1052,7 +1069,7 @@
 
   function deselectAllPhotos() {
     selectedIndices = [];
-    selectedPhotoLabel.textContent = "No Photos Selected";
+    syncSliderControls();
     requestRender();
   }
 
@@ -1081,6 +1098,12 @@
   function syncSliderControls() {
     if (!selectedIndices.length) {
       selectedPhotoLabel.textContent = "No Photos Selected";
+      // Clear any highlighted Frame Shape/Behavior button left over from
+      // whichever photo was selected before -- same "nothing active" state
+      // already used for a mixed multi-selection, since there's no longer
+      // any photo whose value these buttons could be showing.
+      setActiveOption(maskModeGroup, null);
+      setActiveOption(maskBehaviorGroup, null);
       return;
     }
     const primaryIdx = selectedIndices[0];
@@ -1099,7 +1122,12 @@
     cornerRadius.value = m.radius;
     radiusVal.textContent = `${m.radius}px`;
     radiusGroup.classList.toggle('disabled', m.mode !== 'rounded');
-    borderColor.value = m.borderColor;
+    // A native color input rejects 'none' as a value (falls back to black),
+    // so only assign it when it's an actual hex color -- the checkerboard
+    // 'transparent-active' class is what actually signals "None" here,
+    // same as it already does for Outer Border/Canvas Background.
+    if (m.borderColor !== 'none') borderColor.value = m.borderColor;
+    borderColor.classList.toggle('transparent-active', m.borderColor === 'none');
 
     if (selectedIndices.length === 1) {
       selectedPhotoLabel.textContent = `Photo ${primaryIdx + 1} Selected`;
@@ -1215,9 +1243,6 @@
     el.addEventListener('input', () => {
       if (el === innerSpacing) innerSpacingVal.textContent = `${innerSpacing.value}px`;
       if (el === outerSpacing) outerSpacingVal.textContent = `${outerSpacing.value}px`;
-      requestRender();
-    });
-    el.addEventListener('change', () => {
       requestRender();
     });
   });
@@ -1506,6 +1531,11 @@
       cCtx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, 2 * Math.PI);
     } else if (type === 'rounded') {
       cCtx.roundRect(x, y, w, h, Math.min(radius, Math.min(w, h) / 2));
+    } else {
+      // Unrecognized mode -- fall back to a plain rect (same as 'none')
+      // rather than leaving the path empty, which would clip the photo to
+      // nothing with no visible sign of what went wrong.
+      cCtx.rect(x, y, w, h);
     }
   }
 
@@ -1546,9 +1576,20 @@
       const frameScale = t.frameScale ?? 1;
       const bw = b.w * frameScale;
       const bh = b.h * frameScale;
-      const bx = b.x + t.x + (b.w - bw) / 2;
-      const by = b.y + t.y + (b.h - bh) / 2;
-      if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
+      const unitCenterX = b.x + b.w / 2 + t.x;
+      const unitCenterY = b.y + b.h / 2 + t.y;
+      // renderCollage rotates the frame/mask itself by t.rot before
+      // clipping, so for any non-circle mask a rotated frame's visible
+      // shape no longer lines up with an axis-aligned box -- inverse-rotate
+      // the tap point into the frame's own local (unrotated) space around
+      // its center before testing, matching the same rotation renderCollage
+      // applies.
+      const rad = -t.rot * Math.PI / 180;
+      const dx = x - unitCenterX;
+      const dy = y - unitCenterY;
+      const localX = dx * Math.cos(rad) - dy * Math.sin(rad);
+      const localY = dx * Math.sin(rad) + dy * Math.cos(rad);
+      if (Math.abs(localX) <= bw / 2 && Math.abs(localY) <= bh / 2) {
         return idx;
       }
     }

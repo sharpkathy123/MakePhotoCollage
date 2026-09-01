@@ -222,4 +222,38 @@ test.describe('Per-photo masks', () => {
     await page.evaluate(() => { selectedIndices = [1]; syncSliderControls(); });
     expect(await page.locator('#borderColor').inputValue()).toBe('#ffffff');
   });
+
+  // Regression test: syncSliderControls set the swatch's .value but never
+  // toggled the transparent-active checkerboard class, so switching to a
+  // photo whose border is set to None showed a stale solid color instead
+  // of the same "None" pattern used everywhere else in the app.
+  test('the Border Color swatch shows the transparent "None" pattern for a photo whose border is set to none', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await page.evaluate(() => { photoMasks[0].borderColor = 'none'; });
+
+    await page.evaluate(() => { selectedIndices = [1]; syncSliderControls(); });
+    expect(await page.locator('#borderColor').evaluate(el => el.classList.contains('transparent-active'))).toBe(false);
+
+    await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
+    expect(await page.locator('#borderColor').evaluate(el => el.classList.contains('transparent-active'))).toBe(true);
+  });
+
+  // Regression test: an unrecognized mask mode used to fall through
+  // applyMaskPath's if/else chain with no matching branch, leaving the
+  // clip path empty and the photo invisible with no error. Not reachable
+  // through the UI today (the option buttons only ever write one of the
+  // four known modes), but a defensive fallback protects against a future
+  // source of bad mode values (e.g. a saved/imported collage).
+  test('an unrecognized mask mode falls back to a plain rect instead of clipping the photo to nothing', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.evaluate(() => { photoMasks[0].mode = 'square'; requestRender(); });
+    const bounds = await page.evaluate(() => ({ ...cellBounds[0] }));
+
+    await page.evaluate(() => { photoMasks[0].mode = 'this-mode-does-not-exist'; requestRender(); });
+
+    const center = await samplePixel(page, bounds.x + bounds.w / 2, bounds.y + bounds.h / 2);
+    expect(center).toEqual([220, 60, 60, 255]); // still rendered, not clipped away
+  });
 });

@@ -5,6 +5,7 @@ const FIXTURES = {
   bluePortrait: path.join(__dirname, 'fixtures', 'blue-portrait.png'), // 180x300, (60,120,220)
   greenSquare: path.join(__dirname, 'fixtures', 'green-square.png'), // 220x220, (60,180,80)
   yellowSquare: path.join(__dirname, 'fixtures', 'yellow-square.png'), // 220x220, (230,200,40)
+  corrupt: path.join(__dirname, 'fixtures', 'corrupt.png'), // not a real image -- fails to decode, on purpose
 };
 
 // Loads the given fixture files into the app via the file input and waits
