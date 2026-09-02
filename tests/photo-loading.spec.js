@@ -8,15 +8,33 @@ test.describe('Loading photos', () => {
     await expect(page.locator('#photoControls')).toBeHidden();
   });
 
-  test('loading files populates rawImages, enables Save, and shows photo controls', async ({ page }) => {
+  test('loading files populates rawImages and enables Save', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
 
     await expect(page.locator('#saveBtn')).toBeEnabled();
-    await expect(page.locator('#photoControls')).toBeVisible();
+    // Nothing is selected by default -- the per-photo panel only appears
+    // once a photo actually is selected (see multiselect.spec.js).
+    await expect(page.locator('#photoControls')).toBeHidden();
 
     const count = await page.evaluate(() => rawImages.length);
     expect(count).toBe(2);
+  });
+
+  // Regression coverage for the "2. Style" merge: the per-photo panel
+  // (Photo Border Color, Scale/Rotation, Frame Shape/Behavior, Corner
+  // Radius) is now shown/hidden purely by selection state, not by whether
+  // photos are loaded at all.
+  test('the per-photo panel appears once a photo is selected, and hides again once deselected', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    await expect(page.locator('#photoControls')).toBeHidden();
+
+    await page.click('button:text("Select All")');
+    await expect(page.locator('#photoControls')).toBeVisible();
+
+    await page.click('button:text("Deselect All")');
+    await expect(page.locator('#photoControls')).toBeHidden();
   });
 
   test('selecting files a second time appends to the previous set instead of replacing it', async ({ page }) => {

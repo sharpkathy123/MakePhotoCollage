@@ -38,7 +38,7 @@ test.describe('Front/back stacking order', () => {
 
   test('Bring to Front moves the selected photo (and its frame) above whatever is currently on top', async ({ page }) => {
     const point = await setupOverlap(page);
-    await page.evaluate(() => { selectedIndices = [0]; });
+    await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
     await page.click('button:text("Bring to Front")');
     await page.waitForTimeout(100);
 
@@ -51,7 +51,7 @@ test.describe('Front/back stacking order', () => {
     // Photo 1 is already on top by default -- explicitly send photo 0 to
     // the back so this exercises the other direction too, not just the
     // inverse of "Bring to Front" above.
-    await page.evaluate(() => { selectedIndices = [0]; });
+    await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
     await page.click('button:text("Send to Back")');
     await page.waitForTimeout(100);
 
@@ -64,7 +64,7 @@ test.describe('Front/back stacking order', () => {
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
     const before = await page.evaluate(() => cellBounds.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })));
 
-    await page.evaluate(() => { selectedIndices = [0]; });
+    await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
     await page.click('button:text("Bring to Front")');
     await page.waitForTimeout(100);
 
@@ -81,7 +81,7 @@ test.describe('Front/back stacking order', () => {
     expect(await page.evaluate(() => selectedIndices.slice())).toEqual([1]);
 
     // Send photo 1 to the back; the same tap should now resolve to photo 0.
-    await page.evaluate(() => { selectedIndices = [1]; });
+    await page.evaluate(() => { selectedIndices = [1]; syncSliderControls(); });
     await page.click('button:text("Send to Back")');
     await page.waitForTimeout(100);
 
@@ -96,7 +96,7 @@ test.describe('Front/back stacking order', () => {
     // Default zOrder is [0, 1, 2]. Select photos 0 and 1 (in that relative
     // order) and bring them both to front -- 2 should end up on the
     // bottom, with 0 still below 1 (their original relative order kept).
-    await page.evaluate(() => { selectedIndices = [0, 1]; });
+    await page.evaluate(() => { selectedIndices = [0, 1]; syncSliderControls(); });
     await page.click('button:text("Bring to Front")');
 
     const order = await page.evaluate(() => zOrder.slice());
@@ -106,7 +106,7 @@ test.describe('Front/back stacking order', () => {
   test('a newly appended photo joins the stack on top', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
-    await page.evaluate(() => { selectedIndices = [0]; });
+    await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
     await page.click('button:text("Send to Back")'); // no-op with one photo, but exercises the path
     await loadPhotos(page, [FIXTURES.bluePortrait]);
 

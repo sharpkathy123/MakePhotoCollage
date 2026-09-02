@@ -84,6 +84,7 @@ test.describe('Per-photo masks', () => {
   test('corner radius only applies to, and is only shown as enabled for, the "rounded" mask', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.click('button:text("Select All")'); // nothing is selected by default
     await page.waitForTimeout(50);
 
     await clickOption(page, '#maskModeGroup', 'circle');
@@ -262,17 +263,8 @@ test.describe('Per-photo masks', () => {
 
   // Regression test: Photo Border Color applies to whatever's currently
   // selected -- with nothing selected, both its picker input and its
-  // eyedropper used to silently no-op with no visible sign why. The whole
-  // row is now disabled outright whenever there's no selection to apply to
-  // (see color-palette.spec.js for the disabled/enabled coverage).
-  test('the Border Color picker has no effect while its row is disabled (nothing selected)', async ({ page }) => {
-    await page.goto('/index.html');
-    await loadPhotos(page, [FIXTURES.redLandscape]);
-
-    await expect(page.locator('#borderColorRow')).toHaveClass(/disabled/);
-    // .disabled sets pointer-events: none, making the picker itself
-    // unreachable via a real tap/click, matching what a person would hit.
-    const pointerEvents = await page.locator('#borderColorRow').evaluate((el) => getComputedStyle(el).pointerEvents);
-    expect(pointerEvents).toBe('none');
-  });
+  // eyedropper used to silently no-op with no visible sign why. It now lives
+  // inside the per-photo panel, which only exists in the DOM's visible flow
+  // once something is selected (see color-palette.spec.js and
+  // photo-loading.spec.js for that show/hide coverage).
 });

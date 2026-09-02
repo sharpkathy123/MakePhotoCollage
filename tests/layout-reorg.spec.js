@@ -7,7 +7,7 @@ const { FIXTURES, loadPhotos } = require('./helpers');
 // Save button stays reachable from anywhere on the page instead of only
 // appearing after scrolling all the way down past every control.
 test.describe('Page layout & reachability', () => {
-  test('sections appear in priority order: Select Photos, Frame & Border Colors, Adjust Photos, Layout & Columns', async ({ page }) => {
+  test('sections appear in priority order: Select Photos, Style, Layout & Columns', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
 
@@ -16,9 +16,8 @@ test.describe('Page layout & reachability', () => {
     );
     expect(headings).toEqual([
       '1. Select Photos',
-      '2. Frame & Border Colors',
-      '3. Adjust Photos',
-      '4. Layout & Columns',
+      '2. Style',
+      '3. Layout & Columns',
     ]);
   });
 
@@ -61,14 +60,15 @@ test.describe('Page layout & reachability', () => {
   });
 
   test('the per-photo toolbar buttons wrap onto multiple rows instead of overflowing on a narrow viewport', async ({ page }) => {
-    await page.setViewportSize({ width: 360, height: 800 });
+    await page.setViewportSize({ width: 320, height: 800 });
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.click('button:text("Select All")'); // reveals the Reset/Front/Back row
 
     const wrapStyle = await page.evaluate(() => getComputedStyle(document.querySelector('.button-group-inline')).flexWrap);
     expect(wrapStyle).toBe('wrap');
 
-    const boxes = await page.locator('.button-group-inline .btn-secondary').all();
+    const boxes = await page.locator('#photoControls .button-group-inline .btn-secondary').all();
     const tops = [];
     for (const box of boxes) {
       const b = await box.boundingBox();

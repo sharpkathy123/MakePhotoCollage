@@ -66,13 +66,13 @@ test.describe('Sampled color palette', () => {
     expect(await page.evaluate(() => canvasColorVal)).toBe(canvasColorBefore);
   });
 
-  test('the Photo Border Color row is disabled with nothing selected', async ({ page }) => {
+  test('the Photo Border Color row is hidden (inside the per-photo panel) with nothing selected', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
 
-    await expect(page.locator('#borderColorRow')).toHaveClass(/disabled/);
+    await expect(page.locator('#borderColorRow')).toBeHidden();
 
     await page.click('button:text("Select All")');
-    await expect(page.locator('#borderColorRow')).not.toHaveClass(/disabled/);
+    await expect(page.locator('#borderColorRow')).toBeVisible();
   });
 });
