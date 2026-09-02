@@ -485,7 +485,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609012100').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609012200').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -1326,23 +1326,15 @@
   // Pure Aspect-Aware Render Engine.
   // `showEditingOverlays` draws the selection outline — an on-screen
   // editing aid only, left out of the saved/shared image.
-  function renderCollage(showEditingOverlays) {
-    if (!rawImages.length) return;
-
-    const s = parseInt(innerSpacing.value, 10) || 0;
-    const b = parseInt(outerSpacing.value, 10) || 0;
-    const layout = layoutType;
-    
-    const cols = Math.max(1, activeCols || 1);
-    const rows = Math.max(1, Math.ceil(rawImages.length / cols));
-    
+  // Pre-calculates natural cell dimensions for every layout type. Each
+  // photo's own mask decides whether its cell is a fixed square (square/
+  // circle masks) or fit to that photo's natural aspect ratio. Returns the
+  // per-cell dimensions plus the resulting total content area (before
+  // outer spacing) -- a read-only pass over rawImages/photoMasks, no
+  // canvas/ctx involved.
+  function layoutCells(layout, cols, rows, s) {
     const baseDimension = 600;
 
-    cellBounds = [];
-
-    // Pre-calculate natural cell dimensions for every layout type. Each
-    // photo's own mask decides whether its cell is a fixed square (square/
-    // circle masks) or fit to that photo's natural aspect ratio.
     const cellLayouts = rawImages.map((img, idx) => {
       const imgW = img.naturalWidth || img.width || 1;
       const imgH = img.naturalHeight || img.height || 1;
@@ -1377,51 +1369,16 @@
       totalH = sumHeights + (s * (rawImages.length + 1));
     }
 
-    const collageW = totalW + (b * 2);
-    const collageH = totalH + (b * 2);
+    return { baseDimension, cellLayouts, totalW, totalH };
+  }
 
-    canvas.width = Math.max(1, collageW);
-    canvas.height = Math.max(1, collageH);
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Canvas Background — the base fill behind everything, always covering
-    // the full canvas regardless of Outer Border thickness. Unlike Outer
-    // Frame Background below (a ring confined to the border strip, and only
-    // when that spacing is above 0px), this is the one control that
-    // guarantees a visible backdrop even with 0px outer spacing.
-    if (canvasColorVal !== 'none') {
-      ctx.fillStyle = canvasColorVal;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
-    // Outer Frame Background -- painted as an actual ring (the full canvas
-    // rect minus the inner content rect, even-odd fill), not a full-canvas
-    // fill. There's no longer a guaranteed opaque layer drawn on top of the
-    // whole interior afterward (each photo's own border only covers its own
-    // mask shape, not the full rectangular cell -- e.g. a circle mask's
-    // cell corners), so a full-canvas fill here would otherwise bleed
-    // through into every gap a photo's own border doesn't reach.
-    if (b > 0 && outerColorVal !== 'none') {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, canvas.width, canvas.height);
-      ctx.rect(b, b, totalW, totalH);
-      ctx.fillStyle = outerColorVal;
-      ctx.fill('evenodd');
-      ctx.restore();
-    }
-
-    // Each photo now carries its own border (see the draw pass below,
-    // photoMask.borderColor) that hugs its own mask shape directly, instead
-    // of a single flat color filling the whole gap area -- so there's no
-    // separate Inner Area Background fill here any more.
-
-    // Position Image Cells. This pass is always in load order (idx 0..N-1),
-    // never in zOrder -- a photo's grid slot is a property of its own
-    // index, and must stay put no matter how its stacking order changes.
-    // It computes and stashes each photo's render geometry, keyed by idx,
-    // for the separate stacking-order draw pass below.
+  // Positions every photo's cell (always in load order -- a photo's grid
+  // slot is a property of its own index, and must stay put no matter how
+  // its stacking order changes) and computes each one's full render
+  // geometry (frame position, content fit, mask size). Pushes onto the
+  // module-level cellBounds array (the caller resets it first) and returns
+  // the geometry, keyed by photo index, for the draw pass below.
+  function computeRenderGeometry(cellLayouts, baseDimension, layout, cols, s, b) {
     let runningOffset = 0;
     const renderGeom = [];
 
@@ -1487,95 +1444,161 @@
       };
     });
 
+    return renderGeom;
+  }
+
+  // Draws one photo's whole unit -- border, clip, content, and (when
+  // selected) its outline -- as a single save/restore-scoped block of ctx
+  // state. See computeRenderGeometry's comment for what frameScale/scale
+  // and rot/panRot each control.
+  function drawPhotoUnit(ctx, g, idx, borderThickness, showEditingOverlays) {
+    const { img, t, photoMask, fit, maskW, maskH, unitCenterX, unitCenterY } = g;
+
+    ctx.save();
+
+    ctx.translate(unitCenterX, unitCenterY);
+    ctx.rotate(t.rot * Math.PI / 180);
+
+    ctx.scale(t.frameScale, t.frameScale);
+
+    // Border: a solid backer in the same mask shape, sized a bit larger
+    // than the photo itself, drawn first so only the margin around the
+    // photo shows through -- a "mat" that hugs the photo's own mask
+    // shape and size, rather than a flat rectangle filling the whole gap
+    // (the old Inner Area Background). Sized to reach exactly to the
+    // midpoint of the gap between cells (half the gap on each side), so
+    // two adjacent photos' borders meet flush without overlapping.
+    if (photoMask.borderColor && photoMask.borderColor !== 'none' && borderThickness > 0) {
+      ctx.fillStyle = photoMask.borderColor;
+      applyMaskPath(
+        ctx, photoMask.mode,
+        -maskW / 2 - borderThickness, -maskH / 2 - borderThickness,
+        maskW + borderThickness * 2, maskH + borderThickness * 2,
+        photoMask.radius + borderThickness
+      );
+      ctx.fill();
+    }
+
+    applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
+    ctx.clip();
+
+    // Panning (panX, panY) shifts only the photo content, expressed as a
+    // true screen-space offset regardless of mode (set directly from
+    // drag movement in applyDragDelta) -- re-expressed here as a local
+    // offset that cancels out the unit's own rotation and total scale, so
+    // its on-screen effect is a straightforward screen-space slide rather
+    // than one that spins or grows along with the frame.
+    //
+    // panRot is the content-only counterpart to frame rotation (t.rot),
+    // same pairing as scale/frameScale -- it spins just the photo behind
+    // a frame that doesn't itself turn (Fixed mode), whereas t.rot turns
+    // the frame (and, by extension, the content locked to it -- Attached
+    // mode). The content's total on-screen rotation is always their sum;
+    // the extra ctx.rotate happens after the frame is already clipped, so
+    // it never affects the frame/mask shape itself, only what's drawn
+    // inside it.
+    ctx.scale(t.scale, t.scale);
+    ctx.save();
+    const panRotDeg = t.panRot || 0;
+    const contentRotDeg = t.rot + panRotDeg;
+    ctx.rotate(panRotDeg * Math.PI / 180);
+    const rad = -contentRotDeg * Math.PI / 180;
+    const totalScale = t.frameScale * t.scale;
+    const localPanX = (t.panX * Math.cos(rad) - t.panY * Math.sin(rad)) / totalScale;
+    const localPanY = (t.panX * Math.sin(rad) + t.panY * Math.cos(rad)) / totalScale;
+    ctx.translate(localPanX, localPanY);
+    ctx.drawImage(img, -fit.w / 2, -fit.h / 2, fit.w, fit.h);
+    ctx.restore();
+
+    ctx.restore();
+
+    if (showEditingOverlays && selectedIndices.includes(idx)) {
+      // Selection outline traces the mask/frame's own current shape,
+      // position, rotation, and frameScale — not the cell's fixed bounds
+      // — so it actually moves, turns, and grows with the photo instead
+      // of being left behind (the same "doesn't move with the photo"
+      // problem the old numbered badge had).
+      ctx.save();
+      ctx.strokeStyle = '#007aff';
+      ctx.translate(unitCenterX, unitCenterY);
+      ctx.rotate(t.rot * Math.PI / 180);
+      ctx.scale(t.frameScale, t.frameScale);
+      // Divide by frameScale so the outline stays a constant on-screen
+      // thickness rather than thickening as the frame grows.
+      ctx.lineWidth = Math.max(4, Math.round(Math.min(maskW, maskH) * 0.015)) / t.frameScale;
+      applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function renderCollage(showEditingOverlays) {
+    if (!rawImages.length) return;
+
+    const s = parseInt(innerSpacing.value, 10) || 0;
+    const b = parseInt(outerSpacing.value, 10) || 0;
+    const layout = layoutType;
+
+    const cols = Math.max(1, activeCols || 1);
+    const rows = Math.max(1, Math.ceil(rawImages.length / cols));
+
+    cellBounds = [];
+
+    const { baseDimension, cellLayouts, totalW, totalH } = layoutCells(layout, cols, rows, s);
+
+    const collageW = totalW + (b * 2);
+    const collageH = totalH + (b * 2);
+
+    canvas.width = Math.max(1, collageW);
+    canvas.height = Math.max(1, collageH);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Canvas Background — the base fill behind everything, always covering
+    // the full canvas regardless of Outer Border thickness. Unlike Outer
+    // Frame Background below (a ring confined to the border strip, and only
+    // when that spacing is above 0px), this is the one control that
+    // guarantees a visible backdrop even with 0px outer spacing.
+    if (canvasColorVal !== 'none') {
+      ctx.fillStyle = canvasColorVal;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Outer Frame Background -- painted as an actual ring (the full canvas
+    // rect minus the inner content rect, even-odd fill), not a full-canvas
+    // fill. There's no longer a guaranteed opaque layer drawn on top of the
+    // whole interior afterward (each photo's own border only covers its own
+    // mask shape, not the full rectangular cell -- e.g. a circle mask's
+    // cell corners), so a full-canvas fill here would otherwise bleed
+    // through into every gap a photo's own border doesn't reach.
+    if (b > 0 && outerColorVal !== 'none') {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, canvas.width, canvas.height);
+      ctx.rect(b, b, totalW, totalH);
+      ctx.fillStyle = outerColorVal;
+      ctx.fill('evenodd');
+      ctx.restore();
+    }
+
+    // Each photo now carries its own border (see drawPhotoUnit,
+    // photoMask.borderColor) that hugs its own mask shape directly, instead
+    // of a single flat color filling the whole gap area -- so there's no
+    // separate Inner Area Background fill here any more.
+    const renderGeom = computeRenderGeometry(cellLayouts, baseDimension, layout, cols, s, b);
+
     // Draw Image Cells, in stacking order (zOrder) rather than load order --
     // zOrder[0] draws first (bottommost), the last entry draws last (on
     // top), so a photo's front/back position is independent of its layout
     // slot. Falls back to load order if zOrder is somehow out of sync
     // (shouldn't happen in normal use, but keeps rendering robust).
     const drawOrder = zOrder.length === rawImages.length ? zOrder : rawImages.map((_, i) => i);
+    const borderThickness = s / 2;
 
     drawOrder.forEach((idx) => {
       const g = renderGeom[idx];
       if (!g) return;
-      const { img, t, photoMask, fit, maskW, maskH, unitCenterX, unitCenterY } = g;
-
-      ctx.save();
-
-      ctx.translate(unitCenterX, unitCenterY);
-      ctx.rotate(t.rot * Math.PI / 180);
-
-      ctx.scale(t.frameScale, t.frameScale);
-
-      // Border: a solid backer in the same mask shape, sized a bit larger
-      // than the photo itself, drawn first so only the margin around the
-      // photo shows through -- a "mat" that hugs the photo's own mask
-      // shape and size, rather than a flat rectangle filling the whole gap
-      // (the old Inner Area Background). Sized to reach exactly to the
-      // midpoint of the gap between cells (half the gap on each side), so
-      // two adjacent photos' borders meet flush without overlapping.
-      const borderThickness = s / 2;
-      if (photoMask.borderColor && photoMask.borderColor !== 'none' && borderThickness > 0) {
-        ctx.fillStyle = photoMask.borderColor;
-        applyMaskPath(
-          ctx, photoMask.mode,
-          -maskW / 2 - borderThickness, -maskH / 2 - borderThickness,
-          maskW + borderThickness * 2, maskH + borderThickness * 2,
-          photoMask.radius + borderThickness
-        );
-        ctx.fill();
-      }
-
-      applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
-      ctx.clip();
-
-      // Panning (panX, panY) shifts only the photo content, expressed as a
-      // true screen-space offset regardless of mode (set directly from
-      // drag movement in applyDragDelta) -- re-expressed here as a local
-      // offset that cancels out the unit's own rotation and total scale, so
-      // its on-screen effect is a straightforward screen-space slide rather
-      // than one that spins or grows along with the frame.
-      //
-      // panRot is the content-only counterpart to frame rotation (t.rot),
-      // same pairing as scale/frameScale -- it spins just the photo behind
-      // a frame that doesn't itself turn (Fixed mode), whereas t.rot turns
-      // the frame (and, by extension, the content locked to it -- Attached
-      // mode). The content's total on-screen rotation is always their sum;
-      // the extra ctx.rotate happens after the frame is already clipped, so
-      // it never affects the frame/mask shape itself, only what's drawn
-      // inside it.
-      ctx.scale(t.scale, t.scale);
-      ctx.save();
-      const panRotDeg = t.panRot || 0;
-      const contentRotDeg = t.rot + panRotDeg;
-      ctx.rotate(panRotDeg * Math.PI / 180);
-      const rad = -contentRotDeg * Math.PI / 180;
-      const totalScale = t.frameScale * t.scale;
-      const localPanX = (t.panX * Math.cos(rad) - t.panY * Math.sin(rad)) / totalScale;
-      const localPanY = (t.panX * Math.sin(rad) + t.panY * Math.cos(rad)) / totalScale;
-      ctx.translate(localPanX, localPanY);
-      ctx.drawImage(img, -fit.w / 2, -fit.h / 2, fit.w, fit.h);
-      ctx.restore();
-
-      ctx.restore();
-
-      if (showEditingOverlays && selectedIndices.includes(idx)) {
-        // Selection outline traces the mask/frame's own current shape,
-        // position, rotation, and frameScale — not the cell's fixed bounds
-        // — so it actually moves, turns, and grows with the photo instead
-        // of being left behind (the same "doesn't move with the photo"
-        // problem the old numbered badge had).
-        ctx.save();
-        ctx.strokeStyle = '#007aff';
-        ctx.translate(unitCenterX, unitCenterY);
-        ctx.rotate(t.rot * Math.PI / 180);
-        ctx.scale(t.frameScale, t.frameScale);
-        // Divide by frameScale so the outline stays a constant on-screen
-        // thickness rather than thickening as the frame grows.
-        ctx.lineWidth = Math.max(4, Math.round(Math.min(maskW, maskH) * 0.015)) / t.frameScale;
-        applyMaskPath(ctx, photoMask.mode, -maskW / 2, -maskH / 2, maskW, maskH, photoMask.radius);
-        ctx.stroke();
-        ctx.restore();
-      }
+      drawPhotoUnit(ctx, g, idx, borderThickness, showEditingOverlays);
     });
   }
 
