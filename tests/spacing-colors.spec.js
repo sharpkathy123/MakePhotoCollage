@@ -47,7 +47,6 @@ test.describe('Spacing & colors', () => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.greenSquare]);
 
-    // Outer Border is the active color target by default.
     await setColorInput(page, '#outerColor', '#00ffff');
     await page.waitForTimeout(100);
 
@@ -55,16 +54,15 @@ test.describe('Spacing & colors', () => {
     expect(outerPixel).toEqual([0, 255, 255, 255]);
   });
 
-  test('"None" (transparent) color option leaves that area unpainted', async ({ page }) => {
+  test('the Outer Border "None" button leaves that area unpainted', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.greenSquare]);
     // Canvas Background auto-picks an opaque color on load and would
     // otherwise show through here -- turn it off so this test isolates
-    // Outer Border's own "None" option.
+    // Outer Border's own "None" button.
     await page.evaluate(() => { canvasColorVal = 'none'; });
 
-    // Outer Border is the active color target by default.
-    await page.click('.swatch-none');
+    await page.click('.none-btn[data-target="outer"]');
     await page.waitForTimeout(100);
 
     const outerPixel = await samplePixel(page, 2, 2);
@@ -81,7 +79,7 @@ test.describe('Spacing & colors', () => {
 
     // Turn off Outer Border too, so nothing else could paint this pixel --
     // isolates whether Canvas Background itself is actually painted.
-    await page.click('.swatch-none'); // Outer Border is the active target by default
+    await page.click('.none-btn[data-target="outer"]');
     await page.waitForTimeout(100);
 
     const outerPixel = await samplePixel(page, 2, 2);
@@ -111,10 +109,9 @@ test.describe('Spacing & colors', () => {
     await loadPhotos(page, [FIXTURES.greenSquare]);
     await page.click('button:text("Deselect All")'); // avoid the selection outline overlapping the inner-gap sample below
 
-    await page.click('.swatch-none'); // Outer Border is the active target by default
+    await page.click('.none-btn[data-target="outer"]');
     await page.evaluate(() => { photoMasks[0].borderColor = 'none'; requestRender(); });
 
-    await page.click('#targetCanvasBtn');
     await setColorInput(page, '#canvasColor', '#ff8800');
     await page.waitForTimeout(100);
 
@@ -129,28 +126,9 @@ test.describe('Spacing & colors', () => {
     expect(innerPixel).toEqual([255, 136, 0, 255]);
 
     // Switching back to None returns it to transparent.
-    await page.click('.swatch-none');
+    await page.click('.none-btn[data-target="canvas"]');
     await page.waitForTimeout(100);
     const clearedPixel = await samplePixel(page, 2, 2);
     expect(clearedPixel[3]).toBe(0);
-  });
-
-  // Regression test: a palette swatch click always applies to whichever
-  // Color Target is currently active, but nothing on screen said which one
-  // -- just a small highlight on one of three buttons. A caption above the
-  // palette now names it explicitly.
-  test('the Sampled Palette caption names the currently active Color Target', async ({ page }) => {
-    await page.goto('/index.html');
-    await loadPhotos(page, [FIXTURES.redLandscape]);
-
-    // Outer Border is the default active target.
-    await expect(page.locator('#paletteTargetLabel')).toContainText('Outer Border');
-
-    await page.click('#targetCanvasBtn');
-    await expect(page.locator('#paletteTargetLabel')).toContainText('Canvas Background');
-
-    await page.click('button:text("Select All")'); // Photo Border Color target needs a selection
-    await page.click('#targetBorderBtn');
-    await expect(page.locator('#paletteTargetLabel')).toContainText('Photo Border Color');
   });
 });

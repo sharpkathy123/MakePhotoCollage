@@ -1,80 +1,78 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos } = require('./helpers');
+const { FIXTURES, loadPhotos, cellCenter, appPointToViewport } = require('./helpers');
+
+// Arms the eyedropper for `target` (one of 'outer'/'canvas'/'border') and
+// taps the given app-space canvas point to sample its pixel color.
+async function sampleColorAt(page, target, point) {
+  await page.click(`.eyedropper-btn[data-target="${target}"]`);
+  const viewportPoint = await appPointToViewport(page, point.x, point.y);
+  await page.mouse.click(viewportPoint.x, viewportPoint.y);
+}
 
 test.describe('Sampled color palette', () => {
-  test('loading photos populates palette swatches, enabling the palette group', async ({ page }) => {
-    await page.goto('/index.html');
-    await expect(page.locator('#paletteGroup')).toHaveClass(/disabled/);
-
-    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.greenSquare]);
-    await page.waitForTimeout(100);
-
-    await expect(page.locator('#paletteGroup')).not.toHaveClass(/disabled/);
-    const swatchCount = await page.locator('#paletteArea .swatch').count();
-    expect(swatchCount).toBeGreaterThan(0);
-    // The always-present "None" (transparent) option stays in the palette area too.
-    await expect(page.locator('#paletteArea .swatch-none')).toBeVisible();
-  });
-
-  test('clicking a palette swatch sets the active color target to that color', async ({ page }) => {
-    await page.goto('/index.html');
-    await loadPhotos(page, [FIXTURES.redLandscape]); // solid red source -> its dominant swatch is red-ish
-    await page.waitForTimeout(100);
-
-    // Outer Border is the default active target.
-    await page.locator('#paletteArea .swatch').first().click();
-    const outerColorValue = await page.inputValue('#outerColor');
-    expect(outerColorValue).not.toBe('#1c1c1e'); // changed from the default dark color
-
-    const appOuterColorVal = await page.evaluate(() => outerColorVal);
-    expect(appOuterColorVal.toLowerCase()).toBe(outerColorValue.toLowerCase());
-  });
-
-  test('clicking the None swatch sets the active target to transparent', async ({ page }) => {
-    await page.goto('/index.html');
-    await loadPhotos(page, [FIXTURES.redLandscape]);
-    await page.waitForTimeout(100);
-
-    await page.click('.swatch-none');
-    const target = await page.evaluate(() => outerColorVal);
-    expect(target).toBe('none');
-  });
-
   // Regression test: a photo's own sampled colors don't always happen to
   // include anything near black or white (e.g. this solid-red fixture has
   // neither), but both are common, useful choices for a border or
-  // background -- they're always added to the palette if nothing already
-  // sampled is close enough to either.
-  test('the palette always includes black and white, even when nothing sampled is close to either', async ({ page }) => {
+  // background -- they're always added to the internal palette (which now
+  // only feeds Canvas Background's auto-pick, with no visible swatch grid)
+  // if nothing already sampled is close enough to either.
+  test('the internal sampled palette always includes black and white, even when nothing sampled is close to either', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]); // solid (220, 60, 60) -- nowhere near black or white
-    await page.waitForTimeout(100);
 
-    const swatchColors = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('#paletteArea .swatch')).map(el => el.style.backgroundColor)
-    );
-    expect(swatchColors).toContain('rgb(0, 0, 0)');
-    expect(swatchColors).toContain('rgb(255, 255, 255)');
+    const hexes = await page.evaluate(() => extractSortedPalette(rawImages).map((c) => c.hex));
+    expect(hexes).toContain('#000000');
+    expect(hexes).toContain('#ffffff');
   });
 
-  test('clicking a palette swatch while Photo Border Color is the active target applies to the selected photo(s)', async ({ page }) => {
+  test('the eyedropper samples a pixel from the collage into the armed target, then disarms itself', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
-    await page.waitForTimeout(100);
+
+    const point = await cellCenter(page, 0); // solid (220, 60, 60) content
+    await sampleColorAt(page, 'outer', point);
+
+    expect(await page.evaluate(() => outerColorVal)).toBe('#dc3c3c');
+    await expect(page.locator('.eyedropper-btn[data-target="outer"]')).not.toHaveClass(/active/);
+    await expect(page.locator('#collageCanvas')).not.toHaveClass(/sampling-color/);
+    await expect(page.locator('#eyedropperHint')).toBeHidden();
+  });
+
+  test('clicking a color row\'s none button sets that target to transparent', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+
+    await page.click('.none-btn[data-target="outer"]');
+    expect(await page.evaluate(() => outerColorVal)).toBe('none');
+  });
+
+  test('the eyedropper for Photo Border Color applies to the selected photo(s), leaving Outer Border and Canvas Background untouched', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
     await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
     const canvasColorBefore = await page.evaluate(() => canvasColorVal);
+    const outerColorBefore = await page.evaluate(() => outerColorVal);
 
-    await page.click('#targetBorderBtn');
-    await page.locator('#paletteArea .swatch').first().click();
-    await page.waitForTimeout(50);
+    const point = await cellCenter(page, 1); // solid (60, 120, 220) content, a photo NOT selected
+    await sampleColorAt(page, 'border', point);
 
     const colors = await page.evaluate(() => photoMasks.map((m) => m.borderColor));
-    expect(colors[0]).not.toBe('#ffffff'); // changed from the default
+    expect(colors[0]).toBe('#3c78dc');
     expect(colors[1]).toBe('#ffffff'); // untouched -- not selected
 
-    // Outer Border and Canvas Background are untouched by a Photo Border
-    // Color swatch click -- it's a per-photo target, not a global one.
-    expect(await page.evaluate(() => outerColorVal)).toBe('#1c1c1e');
+    // Outer Border and Canvas Background are untouched by the Photo Border
+    // Color eyedropper -- it's a per-photo target, not a global one.
+    expect(await page.evaluate(() => outerColorVal)).toBe(outerColorBefore);
     expect(await page.evaluate(() => canvasColorVal)).toBe(canvasColorBefore);
+  });
+
+  test('the Photo Border Color row is disabled with nothing selected', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+
+    await expect(page.locator('#borderColorRow')).toHaveClass(/disabled/);
+
+    await page.click('button:text("Select All")');
+    await expect(page.locator('#borderColorRow')).not.toHaveClass(/disabled/);
   });
 });

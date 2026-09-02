@@ -214,10 +214,6 @@ test.describe('Per-photo masks', () => {
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
     await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
 
-    // Photo Border Color is one of three Color Target buttons now (Outer
-    // Border and Canvas Background are the others) -- it must be the active
-    // target before its picker input takes effect, same as those two.
-    await page.click('#targetBorderBtn');
     await setColorInput(page, '#borderColor', '#00aaff');
     await page.waitForTimeout(50);
 
@@ -265,27 +261,18 @@ test.describe('Per-photo masks', () => {
   });
 
   // Regression test: Photo Border Color applies to whatever's currently
-  // selected -- with nothing selected, both its picker input and a palette
-  // swatch click used to silently no-op with no visible sign why. It's now
-  // disabled outright whenever there's no selection to apply to.
-  test('the Photo Border Color target is disabled when nothing is selected, and falls back to Outer Border', async ({ page }) => {
+  // selected -- with nothing selected, both its picker input and its
+  // eyedropper used to silently no-op with no visible sign why. The whole
+  // row is now disabled outright whenever there's no selection to apply to
+  // (see color-palette.spec.js for the disabled/enabled coverage).
+  test('the Border Color picker has no effect while its row is disabled (nothing selected)', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
-    await page.click('button:text("Select All")'); // nothing is selected by default
 
-    await expect(page.locator('#targetBorderBtn')).toBeEnabled();
-
-    await page.click('#targetBorderBtn');
-    expect(await page.evaluate(() => activeColorTarget)).toBe('border');
-
-    await page.click('button:text("Deselect All")');
-
-    await expect(page.locator('#targetBorderBtn')).toBeDisabled();
-    // It was the active target when the selection emptied out -- falls
-    // back to Outer Border rather than staying active-but-unusable.
-    expect(await page.evaluate(() => activeColorTarget)).toBe('outer');
-
-    await page.click('button:text("Select All")');
-    await expect(page.locator('#targetBorderBtn')).toBeEnabled();
+    await expect(page.locator('#borderColorRow')).toHaveClass(/disabled/);
+    // .disabled sets pointer-events: none, making the picker itself
+    // unreachable via a real tap/click, matching what a person would hit.
+    const pointerEvents = await page.locator('#borderColorRow').evaluate((el) => getComputedStyle(el).pointerEvents);
+    expect(pointerEvents).toBe('none');
   });
 });

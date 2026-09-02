@@ -137,40 +137,59 @@
       border-color: var(--accent-color);
     }
 
-    .color-target-toggle {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 8px;
-    }
-
-    .target-btn {
-      flex: 1 1 auto;
-      min-width: 130px;
-      padding: 12px 14px;
-      min-height: 44px;
-      box-sizing: border-box;
-      border: 2px solid var(--border-color);
-      border-radius: 8px;
-      background: #fafafa;
-      cursor: pointer;
-      font-weight: 600;
-      font-size: 0.8rem;
+    /* One self-contained row per color target (Outer Border, Canvas
+       Background, Photo Border Color) -- label on the left, its own swatch/
+       eyedropper/none controls on the right, an iOS-Settings-row layout.
+       Each row acts directly on its own target; there's no shared "active
+       target" concept to toggle first (see applyColorToTarget/setColorNone). */
+    .color-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      transition: all 0.2s ease;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border-color);
     }
 
-    .target-btn.active {
+    .color-row:last-child {
+      border-bottom: none;
+    }
+
+    .color-row label {
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+
+    .color-row-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .color-row.disabled {
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .icon-btn {
+      width: 36px;
+      height: 36px;
+      flex-shrink: 0;
+      box-sizing: border-box;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: #fafafa;
+      cursor: pointer;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .icon-btn.active {
       border-color: var(--accent-color);
       background: #eef6ff;
-      color: var(--accent-color);
-    }
-
-    .target-btn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
     }
 
     /* A custom-rendered replacement for native <select> pickers, used for
@@ -208,8 +227,9 @@
     }
 
     .color-picker-box {
-      width: 24px;
-      height: 24px;
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
       border: none;
       border-radius: 50%;
       padding: 0;
@@ -224,44 +244,11 @@
       background: repeating-linear-gradient(45deg, #ccc, #ccc 4px, #fff 4px, #fff 8px);
     }
 
-    .palette-container {
-      width: 100%;
-      overflow-x: auto;
-      white-space: nowrap;
-      padding: 4px 0;
-    }
-
-    .palette-swatches {
-      display: inline-flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .swatch {
-      width: 28px;
-      height: 28px;
-      flex-shrink: 0;
-      border-radius: 50%;
-      border: 2px solid #ffffff;
-      box-shadow: 0 0 0 1px var(--border-color);
-      cursor: pointer;
-    }
-
-    .swatch-none {
-      width: 28px;
-      height: 28px;
-      flex-shrink: 0;
-      border-radius: 50%;
-      border: 2px solid #ff3b30;
-      background: repeating-linear-gradient(45deg, #ccc, #ccc 4px, #fff 4px, #fff 8px);
-      box-shadow: 0 0 0 1px var(--border-color);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.6rem;
-      font-weight: bold;
-      color: #ff3b30;
+    /* While sampling (eyedropper armed), the canvas shows a crosshair and a
+       hint instead of the normal grab cursor -- the next tap on it reads a
+       pixel instead of selecting/dragging a photo. */
+    canvas.sampling-color {
+      cursor: crosshair;
     }
 
     #canvas-container {
@@ -398,6 +385,7 @@
   <div id="canvas-container">
     <canvas id="collageCanvas"></canvas>
     <div class="touch-hint" id="touchHint" style="display:none;">🖐 Tap photo to select &bull; Drag to move &bull; Pinch to zoom</div>
+    <div class="touch-hint" id="eyedropperHint" style="display:none;">💧 Tap the collage to pick that color</div>
   </div>
 
   <div class="section-title">2. Frame &amp; Border Colors</div>
@@ -412,30 +400,30 @@
     </div>
   </div>
 
-  <div class="control">
-    <label>Color Target</label>
-    <div class="color-target-toggle">
-      <button class="target-btn active" id="targetOuterBtn" type="button" onclick="setActiveColorTarget('outer')">
-        <span>Outer Border</span>
-        <input type="color" class="color-picker-box" id="outerColor" value="#1c1c1e">
-      </button>
-      <button class="target-btn" id="targetCanvasBtn" type="button" onclick="setActiveColorTarget('canvas')">
-        <span>Canvas Background</span>
-        <input type="color" class="color-picker-box" id="canvasColor" value="#f2f2f7">
-      </button>
-      <button class="target-btn" id="targetBorderBtn" type="button" onclick="setActiveColorTarget('border')">
-        <span>Photo Border Color</span>
-        <input type="color" class="color-picker-box" id="borderColor" value="#ffffff">
-      </button>
+  <div class="color-row" data-target="outer">
+    <label for="outerColor">Outer Border</label>
+    <div class="color-row-controls">
+      <input type="color" class="color-picker-box" id="outerColor" value="#1c1c1e">
+      <button type="button" class="icon-btn eyedropper-btn" data-target="outer" title="Pick a color from the collage" aria-label="Pick Outer Border color from the collage">💧</button>
+      <button type="button" class="icon-btn none-btn" data-target="outer" title="Transparent" aria-label="Set Outer Border to transparent">∅</button>
     </div>
   </div>
 
-  <div class="control disabled" id="paletteGroup">
-    <label>Sampled Palette <span id="paletteTargetLabel" style="font-weight:400; color:#8e8e93;"></span>:</label>
-    <div class="palette-container">
-      <div class="palette-swatches" id="paletteArea">
-        <div class="swatch-none" title="Transparent" onclick="setTransparentColor()">None</div>
-      </div>
+  <div class="color-row" data-target="canvas">
+    <label for="canvasColor">Canvas Background</label>
+    <div class="color-row-controls">
+      <input type="color" class="color-picker-box" id="canvasColor" value="#f2f2f7">
+      <button type="button" class="icon-btn eyedropper-btn" data-target="canvas" title="Pick a color from the collage" aria-label="Pick Canvas Background color from the collage">💧</button>
+      <button type="button" class="icon-btn none-btn" data-target="canvas" title="Transparent" aria-label="Set Canvas Background to transparent">∅</button>
+    </div>
+  </div>
+
+  <div class="color-row disabled" id="borderColorRow" data-target="border">
+    <label for="borderColor">Photo Border Color</label>
+    <div class="color-row-controls">
+      <input type="color" class="color-picker-box" id="borderColor" value="#ffffff">
+      <button type="button" class="icon-btn eyedropper-btn" data-target="border" title="Pick a color from the collage" aria-label="Pick Photo Border color from the collage">💧</button>
+      <button type="button" class="icon-btn none-btn" data-target="border" title="Transparent" aria-label="Set Photo Border to transparent">∅</button>
     </div>
   </div>
 
@@ -522,7 +510,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609020530').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609020900').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -563,13 +551,8 @@
   const outerSpacingVal = document.getElementById('outerSpacingVal');
   const outerColor = document.getElementById('outerColor');
   const canvasColor = document.getElementById('canvasColor');
-  const targetOuterBtn = document.getElementById('targetOuterBtn');
-  const targetCanvasBtn = document.getElementById('targetCanvasBtn');
-  const targetBorderBtn = document.getElementById('targetBorderBtn');
   const borderColor = document.getElementById('borderColor');
-  const paletteGroup = document.getElementById('paletteGroup');
-  const paletteArea = document.getElementById('paletteArea');
-  const paletteTargetLabel = document.getElementById('paletteTargetLabel');
+  const borderColorRow = document.getElementById('borderColorRow');
   const layoutTypeGroup = document.getElementById('layoutTypeGroup');
   const gridCols = document.getElementById('gridCols');
   const gridColsGroup = document.getElementById('gridColsGroup');
@@ -593,7 +576,6 @@
 
   // Application State
   let layoutType = 'grid';
-  let activeColorTarget = 'outer';
   let outerColorVal = '#1c1c1e';
   // Transparent until photos are loaded -- applyNewImageSet immediately
   // overwrites this with an auto-picked Sampled Palette color on every
@@ -675,36 +657,35 @@
   let dragMaxMovement = 0;
   const TAP_MOVEMENT_THRESHOLD = 5; // CSS pixels
 
-  const COLOR_TARGET_NAMES = { outer: 'Outer Border', canvas: 'Canvas Background', border: 'Photo Border Color' };
-
-  function setActiveColorTarget(target) {
-    activeColorTarget = target;
-    targetOuterBtn.classList.toggle('active', target === 'outer');
-    targetCanvasBtn.classList.toggle('active', target === 'canvas');
-    targetBorderBtn.classList.toggle('active', target === 'border');
-    paletteTargetLabel.textContent = `(applying to: ${COLOR_TARGET_NAMES[target]})`;
+  // Each of the three color rows (Outer Border, Canvas Background, Photo
+  // Border Color) acts directly on its own target -- no shared "active
+  // target" to switch first. applyColorToTarget/setColorNone are the one
+  // place that routing lives, shared by each row's own <input type=color>,
+  // its eyedropper button, and its none button.
+  function applyColorToTarget(target, hex) {
+    if (target === 'outer') {
+      outerColorVal = hex;
+      outerColor.value = hex;
+      outerColor.classList.remove('transparent-active');
+    } else if (target === 'canvas') {
+      canvasColorVal = hex;
+      canvasColor.value = hex;
+      canvasColor.classList.remove('transparent-active');
+    } else {
+      selectedIndices.forEach(idx => {
+        if (photoMasks[idx]) photoMasks[idx].borderColor = hex;
+      });
+      borderColor.value = hex;
+      borderColor.classList.remove('transparent-active');
+    }
+    requestRender();
   }
 
-  outerColor.addEventListener('input', (e) => {
-    if (activeColorTarget === 'outer') {
-      outerColorVal = e.target.value;
-      outerColor.classList.remove('transparent-active');
-      requestRender();
-    }
-  });
-  canvasColor.addEventListener('input', (e) => {
-    if (activeColorTarget === 'canvas') {
-      canvasColorVal = e.target.value;
-      canvasColor.classList.remove('transparent-active');
-      requestRender();
-    }
-  });
-
-  function setTransparentColor() {
-    if (activeColorTarget === 'outer') {
+  function setColorNone(target) {
+    if (target === 'outer') {
       outerColorVal = 'none';
       outerColor.classList.add('transparent-active');
-    } else if (activeColorTarget === 'canvas') {
+    } else if (target === 'canvas') {
       canvasColorVal = 'none';
       canvasColor.classList.add('transparent-active');
     } else {
@@ -716,8 +697,61 @@
     requestRender();
   }
 
+  outerColor.addEventListener('input', (e) => applyColorToTarget('outer', e.target.value));
+  canvasColor.addEventListener('input', (e) => applyColorToTarget('canvas', e.target.value));
+  borderColor.addEventListener('input', (e) => applyColorToTarget('border', e.target.value));
+
+  document.querySelectorAll('.none-btn').forEach(btn => {
+    btn.addEventListener('click', () => setColorNone(btn.dataset.target));
+  });
+
+  // Eyedropper: arms sampling for one target, then reads the next tap on
+  // the canvas as a pixel color instead of a photo selection/drag -- see
+  // the early check in the touchstart/mousedown handlers below. No native
+  // EyeDropper API (unsupported in Safari, and the point is sampling from
+  // the collage specifically, not arbitrary screen pixels).
+  let samplingTarget = null;
+  const eyedropperHint = document.getElementById('eyedropperHint');
+
+  function armEyedropper(target) {
+    samplingTarget = target;
+    canvas.classList.add('sampling-color');
+    document.querySelectorAll('.eyedropper-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.target === target);
+    });
+    eyedropperHint.style.display = 'block';
+  }
+
+  function disarmEyedropper() {
+    samplingTarget = null;
+    canvas.classList.remove('sampling-color');
+    document.querySelectorAll('.eyedropper-btn').forEach(btn => btn.classList.remove('active'));
+    eyedropperHint.style.display = 'none';
+  }
+
+  document.querySelectorAll('.eyedropper-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (samplingTarget === btn.dataset.target) disarmEyedropper();
+      else armEyedropper(btn.dataset.target);
+    });
+  });
+
+  // Reads the canvas pixel at app-space (x, y) and applies it to whichever
+  // target is currently armed, then disarms. Returns true if a sample was
+  // taken (caller uses this to skip normal hit-testing/selection for the
+  // same tap).
+  function trySampleColor(x, y) {
+    if (!samplingTarget) return false;
+    const d = ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data;
+    const hex = '#' + [d[0], d[1], d[2]].map(c => c.toString(16).padStart(2, '0')).join('');
+    applyColorToTarget(samplingTarget, hex);
+    disarmEyedropper();
+    return true;
+  }
+
   // Sets the current layout type, keeping the Arrangement button group's
-  // highlighted button in sync -- same pattern as setActiveColorTarget.
+  // highlighted button in sync -- same self-contained-per-control pattern
+  // as the color rows above.
   function setLayoutType(value) {
     layoutType = value;
     setActiveOption(layoutTypeGroup, value);
@@ -829,7 +863,6 @@
       canvasColor.classList.remove('transparent-active');
     }
 
-    paletteGroup.classList.remove('disabled');
     touchHint.style.display = 'block';
     photoControls.style.display = 'block';
     saveBtn.disabled = false;
@@ -860,7 +893,7 @@
     startNewBtn.style.display = 'none';
     photoControls.style.display = 'none';
     touchHint.style.display = 'none';
-    paletteGroup.classList.add('disabled');
+    disarmEyedropper();
     saveBtn.disabled = true;
 
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
@@ -1215,13 +1248,13 @@
 
   function syncSliderControls() {
     // Photo Border Color applies to whatever's currently selected -- with
-    // nothing selected it would silently no-op (both the picker input and
-    // a palette swatch click), so disable it entirely rather than leave it
-    // clickable with no visible effect. Falls back to the Outer Border
-    // target if it was the active one when the selection emptied out.
-    targetBorderBtn.disabled = !selectedIndices.length;
-    if (!selectedIndices.length && activeColorTarget === 'border') {
-      setActiveColorTarget('outer');
+    // nothing selected it would silently no-op (both its picker input and
+    // its eyedropper), so the whole row disables rather than staying
+    // interactive with no visible effect. Also cancels an armed eyedropper
+    // for it, since there'd be nothing left to apply the sample to.
+    borderColorRow.classList.toggle('disabled', !selectedIndices.length);
+    if (!selectedIndices.length && samplingTarget === 'border') {
+      disarmEyedropper();
     }
 
     if (!selectedIndices.length) {
@@ -1353,16 +1386,6 @@
     selectedIndices.forEach(idx => {
       if (photoMasks[idx]) photoMasks[idx].radius = radius;
     });
-    requestRender();
-  });
-
-  borderColor.addEventListener('input', () => {
-    if (activeColorTarget !== 'border') return;
-    const color = borderColor.value;
-    selectedIndices.forEach(idx => {
-      if (photoMasks[idx]) photoMasks[idx].borderColor = color;
-    });
-    borderColor.classList.remove('transparent-active');
     requestRender();
   });
 
@@ -1851,6 +1874,7 @@
     e.preventDefault();
     if (e.touches.length === 1) {
       const coords = getCanvasCoords(e);
+      if (trySampleColor(coords.x, coords.y)) return;
       const hit = hitTestCell(coords.x, coords.y);
       if (beginCellInteraction(hit)) return;
       isDragging = true;
@@ -1900,6 +1924,7 @@
   // Mouse Handlers
   canvas.addEventListener('mousedown', (e) => {
     const coords = getCanvasCoords(e);
+    if (trySampleColor(coords.x, coords.y)) return;
     const hit = hitTestCell(coords.x, coords.y);
     if (beginCellInteraction(hit)) return;
     isDragging = true;
@@ -1959,11 +1984,11 @@
     return { h: h * 360, s: s * 100, l: l * 100 };
   }
 
+  // Computes a deduped, sorted, black/white-guaranteed palette from the
+  // given source canvases. No longer builds any visible swatch UI (the
+  // eyedropper replaced that) -- this purely feeds
+  // pickCanvasBackgroundColor's default-color pick.
   function extractSortedPalette(canvases) {
-    const noneBtn = paletteArea.querySelector('.swatch-none');
-    paletteArea.innerHTML = '';
-    paletteArea.appendChild(noneBtn);
-
     const rawColors = [];
     canvases.forEach(c => {
       const cCtx = document.createElement('canvas').getContext('2d');
@@ -2001,34 +2026,6 @@
       if (Math.abs(a.h - b.h) > 15) return a.h - b.h;
       if (Math.abs(a.s - b.s) > 15) return b.s - a.s;
       return b.l - a.l;
-    });
-
-    // The Sampled Palette is shared by all three Color Target buttons
-    // (Outer Border, Canvas Background, Photo Border Color) -- a swatch
-    // click always paints whichever one is currently active. The first two
-    // are single collage-wide values; Photo Border Color instead applies to
-    // every currently selected photo, same as its own picker input does.
-    unique.forEach(col => {
-      const swatch = document.createElement('div');
-      swatch.className = 'swatch';
-      swatch.style.backgroundColor = col.hex;
-      swatch.onclick = () => {
-        if (activeColorTarget === 'outer') {
-          outerColorVal = col.hex; outerColor.value = col.hex;
-          outerColor.classList.remove('transparent-active');
-        } else if (activeColorTarget === 'canvas') {
-          canvasColorVal = col.hex; canvasColor.value = col.hex;
-          canvasColor.classList.remove('transparent-active');
-        } else {
-          selectedIndices.forEach(idx => {
-            if (photoMasks[idx]) photoMasks[idx].borderColor = col.hex;
-          });
-          borderColor.value = col.hex;
-          borderColor.classList.remove('transparent-active');
-        }
-        requestRender();
-      };
-      paletteArea.appendChild(swatch);
     });
 
     return unique;
@@ -2083,7 +2080,6 @@
   }
 
   updateUI();
-  setActiveColorTarget('outer'); // populates the palette's "applying to" caption for the initial default target
 </script>
 
 </body>
