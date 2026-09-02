@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const { FIXTURES, loadPhotos } = require('./helpers');
 
 test.describe('Scale / rotation / reset', () => {
-  test('the Scale and Rotation sliders update the selected photo\'s transform (Fixed mode, the default)', async ({ page }) => {
+  test('the Scale and Rotation sliders update the selected photo\'s transform (Attached mode, the default)', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
 
@@ -12,14 +12,16 @@ test.describe('Scale / rotation / reset', () => {
     await page.dispatchEvent('#modRotate', 'input');
     await page.waitForTimeout(100);
 
-    // Fixed mode (the default for a freshly loaded photo) routes rotation
-    // to panRot, the content-only field -- rot (the frame's own field)
-    // stays untouched, so the frame/mask never turns. See pan-behavior.spec
-    // for the fuller Fixed-vs-Attached routing and rendered-pixel coverage.
-    const t = await page.evaluate(() => ({ scale: transforms[0].scale, rot: transforms[0].rot, panRot: transforms[0].panRot }));
-    expect(t.scale).toBe(2);
-    expect(t.panRot).toBe(45);
-    expect(t.rot).toBe(0);
+    // Attached mode (the default for a freshly loaded photo, so the frame
+    // and photo move together) routes both to the frame's own fields --
+    // frameScale and rot -- leaving the Fixed-mode content-only fields
+    // (scale/panRot) untouched. See pan-behavior.spec for the fuller
+    // Fixed-vs-Attached routing and rendered-pixel coverage.
+    const t = await page.evaluate(() => ({ scale: transforms[0].scale, frameScale: transforms[0].frameScale, rot: transforms[0].rot, panRot: transforms[0].panRot }));
+    expect(t.frameScale).toBe(2);
+    expect(t.rot).toBe(45);
+    expect(t.scale).toBe(1);
+    expect(t.panRot).toBe(0);
   });
 
   test('applying scale/rotation to a multi-selection updates every selected photo', async ({ page }) => {
@@ -31,7 +33,9 @@ test.describe('Scale / rotation / reset', () => {
     await page.dispatchEvent('#modScale', 'input');
     await page.waitForTimeout(100);
 
-    const scales = await page.evaluate(() => transforms.map((t) => t.scale));
+    // Attached is the default behavior, so the Scale slider routes to
+    // frameScale for every selected photo (see getGestureScale/setGestureScale).
+    const scales = await page.evaluate(() => transforms.map((t) => t.frameScale));
     expect(scales).toEqual([1.8, 1.8, 1.8]);
   });
 

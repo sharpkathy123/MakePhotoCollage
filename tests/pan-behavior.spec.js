@@ -1,7 +1,19 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos, cellCenter, appPointToViewport, clickOption, samplePixel } = require('./helpers');
+const { FIXTURES, loadPhotos, cellCenter, appPointToViewport, clickOption, samplePixel, getActiveOptionValue } = require('./helpers');
 
 test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
+  // A freshly loaded photo defaults to Attached ("Moving Frame") behavior --
+  // the most common first thing a person does is drag a photo around, and
+  // that should move the frame and photo together, not leave the frame
+  // stationary while the photo pans invisibly behind it.
+  test('a freshly loaded photo defaults to Attached (Moving Frame) behavior', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+
+    expect(await page.evaluate(() => photoMasks[0].behavior)).toBe('attached');
+    expect(await getActiveOptionValue(page, '#maskBehaviorGroup')).toBe('attached');
+  });
+
   // Regression test: switching Fixed -> Attached used to reinterpret the
   // same x/y offset completely differently, jumping the crop. Position
   // (x, y) and pan (panX, panY) are now tracked separately; the rendered

@@ -28,6 +28,9 @@
       color: var(--text-color);
       margin: 0;
       padding: 16px;
+      /* Extra room at the bottom so the fixed Save bar (see #saveBar) never
+         covers the last section of scrollable content. */
+      padding-bottom: 88px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -303,7 +306,38 @@
 
     .button-group-inline {
       display: flex;
+      flex-wrap: wrap;
       gap: 6px;
+    }
+
+    .button-group-inline .btn-secondary {
+      flex: 1 1 calc(33% - 6px);
+      min-width: 84px;
+    }
+
+    /* The Save button docks to the bottom of the viewport at all times,
+       rather than only appearing after scrolling all the way down past
+       every control -- reachable from wherever you're working, and always
+       visible at the same time as the canvas (which stays right at the top
+       of the page). A full-height sticky canvas was tried and reverted: it
+       covered whatever control the page scrolled to next, blocking taps on
+       it -- a small fixed action bar carries none of that risk. */
+    #saveBar {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 20;
+      display: flex;
+      justify-content: center;
+      padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+      background: var(--card-bg);
+      box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.12);
+    }
+
+    #saveBar .btn-save {
+      max-width: 648px;
+      margin-top: 0;
     }
 
     .version-stamp {
@@ -366,8 +400,48 @@
     <div class="touch-hint" id="touchHint" style="display:none;">🖐 Tap photo to select &bull; Drag to move &bull; Pinch to zoom</div>
   </div>
 
+  <div class="section-title">2. Frame &amp; Border Colors</div>
+  <div class="row">
+    <div class="control">
+      <label for="innerSpacing">Photo Spacing (sets border thickness): <span id="innerSpacingVal">16px</span></label>
+      <input type="range" id="innerSpacing" min="0" max="100" value="16">
+    </div>
+    <div class="control">
+      <label for="outerSpacing">Outer Spacing: <span id="outerSpacingVal">24px</span></label>
+      <input type="range" id="outerSpacing" min="0" max="150" value="24">
+    </div>
+  </div>
+
+  <div class="control">
+    <label>Color Target</label>
+    <div class="color-target-toggle">
+      <button class="target-btn active" id="targetOuterBtn" type="button" onclick="setActiveColorTarget('outer')">
+        <span>Outer Border</span>
+        <input type="color" class="color-picker-box" id="outerColor" value="#1c1c1e">
+      </button>
+      <button class="target-btn" id="targetCanvasBtn" type="button" onclick="setActiveColorTarget('canvas')">
+        <span>Canvas Background</span>
+        <input type="color" class="color-picker-box" id="canvasColor" value="#f2f2f7">
+      </button>
+      <button class="target-btn" id="targetBorderBtn" type="button" onclick="setActiveColorTarget('border')">
+        <span>Photo Border Color</span>
+        <input type="color" class="color-picker-box" id="borderColor" value="#ffffff">
+      </button>
+    </div>
+  </div>
+
+  <div class="control disabled" id="paletteGroup">
+    <label>Sampled Palette <span id="paletteTargetLabel" style="font-weight:400; color:#8e8e93;"></span>:</label>
+    <div class="palette-container">
+      <div class="palette-swatches" id="paletteArea">
+        <div class="swatch-none" title="Transparent" onclick="setTransparentColor()">None</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Active Photo Controls -->
   <div class="photo-controls-card" id="photoControls" style="display:none;">
+    <div class="section-title" style="margin-top:0;">3. Adjust Photos</div>
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
       <span style="font-size:0.85rem; font-weight:700; color:var(--accent-color);" id="selectedPhotoLabel">Photo 1 Selected</span>
       <div class="button-group-inline">
@@ -416,7 +490,7 @@
     </div>
   </div>
 
-  <div class="section-title">2. Layout & Columns</div>
+  <div class="section-title">4. Layout & Columns</div>
   <div class="row">
     <div class="control">
       <label id="layoutTypeLabel">Arrangement</label>
@@ -434,50 +508,13 @@
     </div>
   </div>
 
-  <div class="section-title">3. Spacing & Colors</div>
-  <div class="row">
-    <div class="control">
-      <label for="innerSpacing">Photo Spacing (sets border thickness): <span id="innerSpacingVal">16px</span></label>
-      <input type="range" id="innerSpacing" min="0" max="100" value="16">
-    </div>
-    <div class="control">
-      <label for="outerSpacing">Outer Spacing: <span id="outerSpacingVal">24px</span></label>
-      <input type="range" id="outerSpacing" min="0" max="150" value="24">
-    </div>
-  </div>
-
-  <div class="control">
-    <label>Color Target</label>
-    <div class="color-target-toggle">
-      <button class="target-btn active" id="targetOuterBtn" type="button" onclick="setActiveColorTarget('outer')">
-        <span>Outer Border</span>
-        <input type="color" class="color-picker-box" id="outerColor" value="#1c1c1e">
-      </button>
-      <button class="target-btn" id="targetCanvasBtn" type="button" onclick="setActiveColorTarget('canvas')">
-        <span>Canvas Background</span>
-        <input type="color" class="color-picker-box" id="canvasColor" value="#f2f2f7">
-      </button>
-      <button class="target-btn" id="targetBorderBtn" type="button" onclick="setActiveColorTarget('border')">
-        <span>Photo Border Color</span>
-        <input type="color" class="color-picker-box" id="borderColor" value="#ffffff">
-      </button>
-    </div>
-  </div>
-
-  <div class="control disabled" id="paletteGroup">
-    <label>Sampled Palette <span id="paletteTargetLabel" style="font-weight:400; color:#8e8e93;"></span>:</label>
-    <div class="palette-container">
-      <div class="palette-swatches" id="paletteArea">
-        <div class="swatch-none" title="Transparent" onclick="setTransparentColor()">None</div>
-      </div>
-    </div>
-  </div>
-
-  <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
-
   <div class="version-stamp">
     Updated: <span id="updateTimestamp">…</span>
   </div>
+</div>
+
+<div id="saveBar">
+  <button class="btn-save" id="saveBtn" disabled>Save / Share Collage</button>
 </div>
 
 <script>
@@ -485,7 +522,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609012200').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609020100').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -558,9 +595,10 @@
   let layoutType = 'grid';
   let activeColorTarget = 'outer';
   let outerColorVal = '#1c1c1e';
-  // Transparent by default so existing collages don't visibly change just
-  // because this control was added -- the Outer Border fill already acts
-  // as an opaque backdrop whenever its spacing is above 0px.
+  // Transparent until photos are loaded -- applyNewImageSet immediately
+  // overwrites this with an auto-picked Sampled Palette color on every
+  // fresh (non-append) load, via pickCanvasBackgroundColor, so a
+  // newly-built collage already has a real background by default.
   let canvasColorVal = 'none';
   let rawImages = [];
   let transforms = [];
@@ -577,7 +615,11 @@
   let multiSelectMode = false;
 
   function defaultPhotoMask() {
-    return { mode: 'none', behavior: 'fixed', radius: 30, borderColor: '#ffffff' };
+    // Attached ("Moving Frame") is the default because the most common
+    // first thing a person does after loading photos is drag them around --
+    // that should move the frame and photo together, not leave the frame
+    // stationary while the photo pans invisibly behind it.
+    return { mode: 'none', behavior: 'attached', radius: 30, borderColor: '#ffffff' };
   }
 
   function defaultTransform() {
@@ -736,6 +778,12 @@
   function applyNewImageSet(newImages, { append = false } = {}) {
     if (!newImages.length) return;
 
+    // Whether this call is actually starting a brand-new collage, as
+    // opposed to adding photos to one already in progress -- captured
+    // before rawImages.length changes below, since "append" alone doesn't
+    // tell us that (appending to an empty collage is still a fresh start).
+    const isFreshLoad = !(append && rawImages.length);
+
     if (append && rawImages.length) {
       const firstNewIdx = rawImages.length;
       rawImages = rawImages.concat(newImages);
@@ -758,7 +806,17 @@
     activeCols = computeOptimalColumns(rawImages.length);
 
     syncColumnDropdown(rawImages.length, activeCols);
-    extractSortedPalette(rawImages);
+    const palette = extractSortedPalette(rawImages);
+
+    // A fresh collage (not an append to an existing one) starts from a
+    // blank slate, so give Canvas Background a real color from what was
+    // just sampled instead of leaving it transparent -- the simplest case
+    // (load photos, like the default, save) should already look good.
+    if (isFreshLoad) {
+      canvasColorVal = pickCanvasBackgroundColor(palette);
+      canvasColor.value = canvasColorVal;
+      canvasColor.classList.remove('transparent-active');
+    }
 
     paletteGroup.classList.remove('disabled');
     touchHint.style.display = 'block';
@@ -1908,6 +1966,26 @@
       };
       paletteArea.appendChild(swatch);
     });
+
+    return unique;
+  }
+
+  // Picks a pleasant default Canvas Background from a freshly-sampled
+  // palette, so the very first thing a newbie sees after loading photos
+  // already looks finished rather than blank/transparent. Prefers an actual
+  // sampled photo color over the guaranteed black/white anchors, and among
+  // those prefers one that's light and not too saturated -- a strong
+  // accent color makes a distracting backdrop, not a pleasant one.
+  function pickCanvasBackgroundColor(palette) {
+    const candidates = palette.filter(c => c.hex !== '#000000' && c.hex !== '#ffffff');
+    const pool = candidates.length ? candidates : palette;
+    let best = pool[0];
+    let bestScore = Infinity;
+    pool.forEach(c => {
+      const score = Math.abs(c.l - 65) + c.s * 0.1;
+      if (score < bestScore) { bestScore = score; best = c; }
+    });
+    return best.hex;
   }
 
   // Native Share / Save

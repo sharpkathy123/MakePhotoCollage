@@ -103,6 +103,11 @@ test.describe('Save / export', () => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
     await page.evaluate(() => {
+      // Canvas Background auto-picks an opaque color on load -- turn it off
+      // so the vacated original position below reads as truly untouched
+      // (transparent), isolating whether the frame/outline/border actually
+      // moved rather than what's painted underneath them.
+      canvasColorVal = 'none';
       photoMasks[0].mode = 'square';
       photoMasks[0].behavior = 'attached';
       transforms[0].x = 150; // frame moved well away from its original cell position

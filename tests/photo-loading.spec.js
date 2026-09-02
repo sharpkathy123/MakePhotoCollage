@@ -61,9 +61,10 @@ test.describe('Loading photos', () => {
     }));
     expect(transformsLen).toBe(3);
     expect(masksLen).toBe(3);
-    // New photos default to no mask / fixed behavior.
+    // New photos default to no mask / Attached behavior (frame and photo
+    // move together), so a first-time drag moves what the user expects.
     expect(firstMask.mode).toBe('none');
-    expect(firstMask.behavior).toBe('fixed');
+    expect(firstMask.behavior).toBe('attached');
   });
 
   // Regression test: one corrupt file used to discard the whole batch

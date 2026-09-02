@@ -60,6 +60,9 @@ test.describe('Per-photo masks', () => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
     await page.click('button:text("Deselect All")'); // avoid the selection outline overlapping the edge samples below
+    // Canvas Background auto-picks an opaque color on load -- turn it off so
+    // this test can isolate mask cropping, not that separate fill.
+    await page.evaluate(() => { canvasColorVal = 'none'; });
     await page.evaluate(() => {
       photoMasks[0].mode = 'circle';
       requestRender();
@@ -184,6 +187,10 @@ test.describe('Per-photo masks', () => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
     await page.click('button:text("Deselect All")'); // avoid the selection outline overlapping the samples below
+    // Canvas Background auto-picks an opaque color on load -- turn it off so
+    // the "untouched (transparent)" corner sample below isolates the border
+    // shape, not that separate fill.
+    await page.evaluate(() => { canvasColorVal = 'none'; });
     await page.evaluate(() => {
       photoMasks[0].mode = 'circle';
       photoMasks[0].borderColor = '#ff8800';

@@ -58,6 +58,10 @@ test.describe('Spacing & colors', () => {
   test('"None" (transparent) color option leaves that area unpainted', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.greenSquare]);
+    // Canvas Background auto-picks an opaque color on load and would
+    // otherwise show through here -- turn it off so this test isolates
+    // Outer Border's own "None" option.
+    await page.evaluate(() => { canvasColorVal = 'none'; });
 
     // Outer Border is the active color target by default.
     await page.click('.swatch-none');
@@ -67,16 +71,32 @@ test.describe('Spacing & colors', () => {
     expect(outerPixel[3]).toBe(0); // fully transparent alpha
   });
 
-  test('Canvas Background defaults to transparent, so existing collages are unaffected', async ({ page }) => {
+  test('Canvas Background defaults to an auto-picked Sampled Palette color, so a freshly loaded collage already looks finished', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.greenSquare]);
+
+    const pickedColor = await page.evaluate(() => canvasColorVal);
+    expect(pickedColor).not.toBe('none');
+    expect(pickedColor).toMatch(/^#[0-9a-f]{6}$/i);
+
     // Turn off Outer Border too, so nothing else could paint this pixel --
-    // isolates whether Canvas Background itself defaults to opaque or none.
+    // isolates whether Canvas Background itself is actually painted.
     await page.click('.swatch-none'); // Outer Border is the active target by default
     await page.waitForTimeout(100);
 
     const outerPixel = await samplePixel(page, 2, 2);
-    expect(outerPixel[3]).toBe(0);
+    expect(outerPixel[3]).toBe(255); // opaque, not transparent
+  });
+
+  test('appending more photos to an existing collage leaves the already-picked Canvas Background alone', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.greenSquare]);
+    const firstPick = await page.evaluate(() => canvasColorVal);
+
+    await loadPhotos(page, [FIXTURES.bluePortrait]); // file input always appends to an existing collage
+    await page.waitForTimeout(100);
+
+    expect(await page.evaluate(() => canvasColorVal)).toBe(firstPick);
   });
 
   // Regression test: Outer Frame Background fills the WHOLE canvas (0,0 to

@@ -62,6 +62,7 @@ test.describe('Sampled color palette', () => {
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
     await page.waitForTimeout(100);
     await page.evaluate(() => { selectedIndices = [0]; syncSliderControls(); });
+    const canvasColorBefore = await page.evaluate(() => canvasColorVal);
 
     await page.click('#targetBorderBtn');
     await page.locator('#paletteArea .swatch').first().click();
@@ -74,6 +75,6 @@ test.describe('Sampled color palette', () => {
     // Outer Border and Canvas Background are untouched by a Photo Border
     // Color swatch click -- it's a per-photo target, not a global one.
     expect(await page.evaluate(() => outerColorVal)).toBe('#1c1c1e');
-    expect(await page.evaluate(() => canvasColorVal)).toBe('none');
+    expect(await page.evaluate(() => canvasColorVal)).toBe(canvasColorBefore);
   });
 });
