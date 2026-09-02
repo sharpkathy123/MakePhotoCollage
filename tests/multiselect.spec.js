@@ -1,7 +1,101 @@
 const { test, expect } = require('@playwright/test');
 const { FIXTURES, loadPhotos, appPointToViewport, cellCenter, clickOption } = require('./helpers');
 
+// Drags the photo at cellBounds[idx]'s center by (dx, dy), in app-space
+// pixels, via a real multi-step mouse gesture (not a single teleporting
+// click) -- needed to distinguish an actual drag from a plain tap, since
+// beginCellInteraction/resolvePendingNarrow decide which one happened by
+// how far the pointer actually moved.
+async function dragCellBy(page, idx, dx, dy) {
+  const start = await cellCenter(page, idx);
+  const startViewport = await appPointToViewport(page, start.x, start.y);
+  const endViewport = await appPointToViewport(page, start.x + dx, start.y + dy);
+  await page.mouse.move(startViewport.x, startViewport.y);
+  await page.mouse.down();
+  await page.mouse.move(endViewport.x, endViewport.y, { steps: 5 });
+  await page.mouse.up();
+}
+
 test.describe('Selection', () => {
+  test('a freshly loaded collage has nothing selected', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([]);
+    await expect(page.locator('#selectedPhotoLabel')).toHaveText('No Photos Selected');
+  });
+
+  test('tapping empty canvas space deselects an existing selection', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.click('button:text("Select All")');
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0]);
+
+    // The outer margin (default 24px outer spacing) is empty canvas space,
+    // never inside any photo cell.
+    const emptyPoint = await appPointToViewport(page, 2, 2);
+    await page.mouse.click(emptyPoint.x, emptyPoint.y);
+
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([]);
+  });
+
+  // Regression coverage for "tap outside the collage to deselect" -- the
+  // gesture people reach for first, matching how Figma/Keynote/Photoshop's
+  // empty canvas backdrop (not their side panels) deselects on click.
+  test('tapping outside the whole card deselects; tapping inside a control does not', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.click('button:text("Select All")');
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0]);
+
+    // Clicking inside a control (the page title) must not deselect.
+    await page.click('h1');
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0]);
+
+    // The page background outside .card -- far from both the card and the
+    // fixed Save bar -- deselects.
+    const { x, y } = await page.evaluate(() => ({ x: window.innerWidth - 20, y: 40 }));
+    await page.mouse.click(x, y);
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([]);
+  });
+
+  // The actual bug report: Select All, then drag one of the selected
+  // photos, used to collapse the selection down to just that one photo
+  // before the drag even started -- losing the group. Matches how
+  // Figma/Keynote/PowerPoint handle dragging a member of an existing
+  // multi-selection: the whole group moves together.
+  test('Select All, then dragging one selected photo moves every selected photo and keeps the selection', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await page.click('button:text("Select All")');
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0, 1]);
+
+    await dragCellBy(page, 0, 60, 45);
+
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0, 1]);
+    // Attached is the default behavior, so a drag moves x/y for both photos.
+    const positions = await page.evaluate(() => transforms.map((t) => ({ x: t.x, y: t.y })));
+    expect(positions[0].x).toBeGreaterThan(20);
+    expect(positions[0].y).toBeGreaterThan(15);
+    expect(positions[1]).toEqual(positions[0]);
+  });
+
+  // Companion case: the same starting selection, but a plain tap (no
+  // movement) on one of the already-selected photos should still narrow
+  // the selection to just that one -- only a real drag preserves the group.
+  test('Select All, then a plain tap (no movement) on one selected photo narrows the selection to just that one', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+    await page.click('button:text("Select All")');
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([0, 1]);
+
+    const point = await cellCenter(page, 1);
+    const viewportPoint = await appPointToViewport(page, point.x, point.y);
+    await page.mouse.click(viewportPoint.x, viewportPoint.y);
+
+    expect(await page.evaluate(() => selectedIndices.slice())).toEqual([1]);
+  });
+
   test('a plain click selects exactly one photo, replacing any previous selection', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait, FIXTURES.greenSquare]);
@@ -33,7 +127,7 @@ test.describe('Selection', () => {
   test('Deselect All clears the Frame Shape/Behavior highlighting, not just the selection', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
-    await page.evaluate(() => { photoMasks[0].mode = 'circle'; syncSliderControls(); });
+    await page.evaluate(() => { selectedIndices = [0]; photoMasks[0].mode = 'circle'; syncSliderControls(); });
 
     expect(await page.locator('#maskModeGroup .option-btn.active').count()).toBe(1);
 

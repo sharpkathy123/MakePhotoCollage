@@ -271,6 +271,7 @@ test.describe('Per-photo masks', () => {
   test('the Photo Border Color target is disabled when nothing is selected, and falls back to Outer Border', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.click('button:text("Select All")'); // nothing is selected by default
 
     await expect(page.locator('#targetBorderBtn')).toBeEnabled();
 

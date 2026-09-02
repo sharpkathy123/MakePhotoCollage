@@ -522,7 +522,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609020100').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609020530').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -666,6 +666,14 @@
   let initialTransforms = {};
   let initialPinchDist = null;
   let animFrameId = null;
+  // Set by beginCellInteraction when a gesture starts on an already-selected
+  // member of a multi-selection -- the drag/pinch runs against the full
+  // selection either way, but resolvePendingNarrow (called on
+  // touchend/mouseup) narrows to just this one photo if the gesture turns
+  // out to have been a plain tap rather than a drag.
+  let pendingNarrowTo = null;
+  let dragMaxMovement = 0;
+  const TAP_MOVEMENT_THRESHOLD = 5; // CSS pixels
 
   const COLOR_TARGET_NAMES = { outer: 'Outer Border', canvas: 'Canvas Background', border: 'Photo Border Color' };
 
@@ -800,7 +808,10 @@
       transforms = rawImages.map(() => (defaultTransform()));
       photoMasks = rawImages.map(defaultPhotoMask);
       zOrder = rawImages.map((_, i) => i);
-      selectedIndices = [0];
+      // Nothing selected by default -- the first thing a person should see
+      // is the finished-looking default collage itself, not a blue
+      // selection outline over whichever photo happened to load first.
+      selectedIndices = [];
     }
 
     activeCols = computeOptimalColumns(rawImages.length);
@@ -1737,12 +1748,32 @@
   }
 
   // Touch / Drag Handlers
-  // Handles a tap/click on a photo cell. In multi-select mode this only
-  // adds/removes the photo from the selection and returns true, so the
-  // caller skips starting a drag on the same gesture. Otherwise it behaves
-  // as before: replace the selection with the tapped photo.
-  function handleCellTap(hit) {
-    if (hit === -1) return false;
+  // Decides what a fresh tap/click on the canvas should do, before it's
+  // known whether the gesture will turn into a drag. Returns true when the
+  // caller should skip starting a drag on this same gesture (a multi-select-
+  // mode toggle, or an empty-canvas tap that just deselects).
+  //
+  // Tapping an already-selected member of an existing multi-selection is
+  // deferred rather than decided immediately: dragging/pinching it should
+  // move the whole group without narrowing the selection first (the same
+  // convention Figma/Keynote/PowerPoint use for a multi-selected group), but
+  // a plain tap with no real movement should still narrow to just that one
+  // photo. pendingNarrowTo records which photo to narrow to if this turns
+  // out to be a plain tap; resolvePendingNarrow (called from
+  // touchend/mouseup, once total movement is known) makes that call.
+  function beginCellInteraction(hit) {
+    pendingNarrowTo = null;
+    if (hit === -1) {
+      // Tapping empty canvas space (outside every photo) deselects, same as
+      // tapping outside the whole card -- see the document-level listener
+      // below.
+      if (selectedIndices.length) {
+        selectedIndices = [];
+        syncSliderControls();
+        requestRender();
+      }
+      return false;
+    }
     if (multiSelectMode) {
       const pos = selectedIndices.indexOf(hit);
       if (pos === -1) selectedIndices.push(hit);
@@ -1751,9 +1782,22 @@
       requestRender();
       return true;
     }
+    if (selectedIndices.length > 1 && selectedIndices.includes(hit)) {
+      pendingNarrowTo = hit;
+      return false;
+    }
     selectedIndices = [hit];
     syncSliderControls();
     return false;
+  }
+
+  function resolvePendingNarrow(moved) {
+    if (pendingNarrowTo !== null && !moved) {
+      selectedIndices = [pendingNarrowTo];
+      syncSliderControls();
+      requestRender();
+    }
+    pendingNarrowTo = null;
   }
 
   // Snapshot every selected photo's transform at drag start, so each can be
@@ -1808,13 +1852,15 @@
     if (e.touches.length === 1) {
       const coords = getCanvasCoords(e);
       const hit = hitTestCell(coords.x, coords.y);
-      if (handleCellTap(hit)) return;
+      if (beginCellInteraction(hit)) return;
       isDragging = true;
       dragStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      dragMaxMovement = 0;
       captureInitialTransforms();
       requestRender();
     } else if (e.touches.length === 2) {
       isDragging = false;
+      pendingNarrowTo = null; // a second touch means this was never a plain tap
       initialPinchDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
@@ -1827,9 +1873,10 @@
     if (isDragging && e.touches.length === 1 && selectedIndices.length) {
       const rect = canvas.getBoundingClientRect();
       const scaleFactor = canvas.width / rect.width;
-      const dx = (e.touches[0].clientX - dragStart.x) * scaleFactor;
-      const dy = (e.touches[0].clientY - dragStart.y) * scaleFactor;
-      applyDragDelta(dx, dy);
+      const clientDx = e.touches[0].clientX - dragStart.x;
+      const clientDy = e.touches[0].clientY - dragStart.y;
+      dragMaxMovement = Math.max(dragMaxMovement, Math.hypot(clientDx, clientDy));
+      applyDragDelta(clientDx * scaleFactor, clientDy * scaleFactor);
       requestRender();
     } else if (e.touches.length === 2 && initialPinchDist && selectedIndices.length) {
       const dist = Math.hypot(
@@ -1846,6 +1893,7 @@
   canvas.addEventListener('touchend', () => {
     isDragging = false;
     initialPinchDist = null;
+    resolvePendingNarrow(dragMaxMovement > TAP_MOVEMENT_THRESHOLD);
     requestRender();
   });
 
@@ -1853,9 +1901,10 @@
   canvas.addEventListener('mousedown', (e) => {
     const coords = getCanvasCoords(e);
     const hit = hitTestCell(coords.x, coords.y);
-    if (handleCellTap(hit)) return;
+    if (beginCellInteraction(hit)) return;
     isDragging = true;
     dragStart = { x: e.clientX, y: e.clientY };
+    dragMaxMovement = 0;
     captureInitialTransforms();
     requestRender();
   });
@@ -1864,15 +1913,30 @@
     if (!isDragging || !selectedIndices.length) return;
     const rect = canvas.getBoundingClientRect();
     const scaleFactor = canvas.width / rect.width;
-    const dx = (e.clientX - dragStart.x) * scaleFactor;
-    const dy = (e.clientY - dragStart.y) * scaleFactor;
-    applyDragDelta(dx, dy);
+    const clientDx = e.clientX - dragStart.x;
+    const clientDy = e.clientY - dragStart.y;
+    dragMaxMovement = Math.max(dragMaxMovement, Math.hypot(clientDx, clientDy));
+    applyDragDelta(clientDx * scaleFactor, clientDy * scaleFactor);
     requestRender();
   });
 
   window.addEventListener('mouseup', () => {
     isDragging = false;
+    resolvePendingNarrow(dragMaxMovement > TAP_MOVEMENT_THRESHOLD);
     requestRender();
+  });
+
+  // Tapping the page background outside the whole card deselects, the same
+  // way clicking a design tool's empty gray canvas backdrop (not its side
+  // panels) does. A tap on empty canvas space is already handled inside
+  // beginCellInteraction above; this covers the literal "outside the
+  // collage" gesture people reach for first.
+  document.addEventListener('pointerdown', (e) => {
+    if (!e.target.closest('.card') && !e.target.closest('#saveBar') && selectedIndices.length) {
+      selectedIndices = [];
+      syncSliderControls();
+      requestRender();
+    }
   });
 
   function rgbToHsl(r, g, b) {

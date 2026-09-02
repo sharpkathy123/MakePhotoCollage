@@ -11,6 +11,10 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     await loadPhotos(page, [FIXTURES.redLandscape]);
 
     expect(await page.evaluate(() => photoMasks[0].behavior)).toBe('attached');
+
+    // Nothing is selected by default, so the button group itself shows no
+    // highlight yet -- selecting the photo should reveal the real default.
+    await page.click('button:text("Select All")');
     expect(await getActiveOptionValue(page, '#maskBehaviorGroup')).toBe('attached');
   });
 
@@ -149,6 +153,7 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
   test('the Scale slider updates scale in Fixed mode and frameScale in Attached mode, leaving the other field untouched', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.click('button:text("Select All")'); // nothing is selected by default
     await page.evaluate(() => { photoMasks[0].behavior = 'fixed'; });
 
     await page.fill('#modScale', '1.6');
@@ -177,6 +182,7 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
   test('the Rotate slider updates panRot in Fixed mode and rot in Attached mode, leaving the other field untouched', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.click('button:text("Select All")'); // nothing is selected by default
     await page.evaluate(() => { photoMasks[0].behavior = 'fixed'; });
 
     await page.fill('#modRotate', '20');

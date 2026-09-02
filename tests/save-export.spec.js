@@ -19,7 +19,7 @@ test.describe('Save / export', () => {
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
     // Square mask uses cover-fit, so its frame exactly matches the cell
     // bounds — keeps the edge sample point simple and predictable.
-    await page.evaluate(() => { photoMasks[0].mode = 'square'; requestRender(); });
+    await page.evaluate(() => { selectedIndices = [0]; photoMasks[0].mode = 'square'; requestRender(); });
     const bounds = await page.evaluate(() => ({ ...cellBounds[0] }));
     const edgePoint = justOutsideTopEdge(bounds);
 
@@ -42,7 +42,7 @@ test.describe('Save / export', () => {
   test('clicking Save renders a clean frame (no overlays) and restores the editing view afterward', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
-    await page.evaluate(() => { photoMasks[0].mode = 'square'; requestRender(); });
+    await page.evaluate(() => { selectedIndices = [0]; photoMasks[0].mode = 'square'; requestRender(); });
 
     // Intercept the real Save flow's own toBlob() call without letting the
     // download/share side effects actually run, and check the canvas
@@ -77,7 +77,7 @@ test.describe('Save / export', () => {
   test('the selection outline shows for a selected photo even when not actively dragging', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
-    await page.evaluate(() => { photoMasks[0].mode = 'square'; requestRender(); });
+    await page.evaluate(() => { selectedIndices = [0]; photoMasks[0].mode = 'square'; requestRender(); });
     const bounds = await page.evaluate(() => ({ ...cellBounds[0] }));
     const edgePoint = justOutsideTopEdge(bounds);
 
@@ -108,6 +108,7 @@ test.describe('Save / export', () => {
       // (transparent), isolating whether the frame/outline/border actually
       // moved rather than what's painted underneath them.
       canvasColorVal = 'none';
+      selectedIndices = [0];
       photoMasks[0].mode = 'square';
       photoMasks[0].behavior = 'attached';
       transforms[0].x = 150; // frame moved well away from its original cell position

@@ -149,6 +149,7 @@ test.describe('Spacing & colors', () => {
     await page.click('#targetCanvasBtn');
     await expect(page.locator('#paletteTargetLabel')).toContainText('Canvas Background');
 
+    await page.click('button:text("Select All")'); // Photo Border Color target needs a selection
     await page.click('#targetBorderBtn');
     await expect(page.locator('#paletteTargetLabel')).toContainText('Photo Border Color');
   });

@@ -5,6 +5,7 @@ test.describe('Scale / rotation / reset', () => {
   test('the Scale and Rotation sliders update the selected photo\'s transform (Attached mode, the default)', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.click('button:text("Select All")'); // nothing is selected by default
 
     await page.fill('#modScale', '2');
     await page.dispatchEvent('#modScale', 'input');
@@ -44,6 +45,7 @@ test.describe('Scale / rotation / reset', () => {
     await loadPhotos(page, [FIXTURES.redLandscape]);
 
     await page.evaluate(() => {
+      selectedIndices = [0]; // nothing is selected by default; Reset Photo acts on the selection
       transforms[0] = { scale: 2.5, rot: 90, x: 40, y: -20, panX: 15, panY: 30, frameScale: 1.8, panRot: -45 };
       syncSliderControls();
     });
