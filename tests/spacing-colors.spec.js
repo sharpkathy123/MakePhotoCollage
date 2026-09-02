@@ -5,6 +5,10 @@ test.describe('Spacing & colors', () => {
   test('outer spacing slider changes the outer border thickness in the render', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.greenSquare]);
+    // Isolate from the min-outer-spacing-vs-photo-spacing floor (see below)
+    // by zeroing Photo Spacing first, so Outer Spacing can actually reach 0.
+    await page.fill('#innerSpacing', '0');
+    await page.dispatchEvent('#innerSpacing', 'input');
 
     await page.fill('#outerSpacing', '0');
     await page.dispatchEvent('#outerSpacing', 'input');
@@ -41,6 +45,36 @@ test.describe('Spacing & colors', () => {
 
     expect(gapAt10).toBe(10);
     expect(gapAt50).toBe(50);
+  });
+
+  // Regression coverage: Photo Spacing sets each photo's own border
+  // thickness (innerSpacing / 2) -- Outer Spacing must be at least that
+  // thick, or a photo's border would run past the outer edge of the canvas
+  // instead of sitting inside it.
+  test('growing Photo Spacing past the current Outer Spacing pulls Outer Spacing up with it', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.greenSquare]);
+    expect(await page.inputValue('#outerSpacing')).toBe('24'); // default
+
+    await page.fill('#innerSpacing', '80'); // thickness 40 > current outer 24
+    await page.dispatchEvent('#innerSpacing', 'input');
+
+    expect(await page.inputValue('#outerSpacing')).toBe('40');
+    await expect(page.locator('#outerSpacingVal')).toHaveText('40px');
+  });
+
+  test('Outer Spacing cannot be dragged below the current Photo-Spacing-derived floor', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.greenSquare]);
+
+    await page.fill('#innerSpacing', '60'); // thickness 30
+    await page.dispatchEvent('#innerSpacing', 'input');
+
+    await page.fill('#outerSpacing', '5'); // below the floor of 30
+    await page.dispatchEvent('#outerSpacing', 'input');
+
+    expect(await page.inputValue('#outerSpacing')).toBe('30');
+    await expect(page.locator('#outerSpacingVal')).toHaveText('30px');
   });
 
   test('the Outer Border color picker fills the outer background area', async ({ page }) => {

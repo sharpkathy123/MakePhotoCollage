@@ -78,4 +78,37 @@ test.describe('Page layout & reachability', () => {
     // wrapped rather than merely being allowed to.
     expect(new Set(tops).size).toBeGreaterThan(1);
   });
+
+  // Regression coverage: the width sliders used to sit in their own row
+  // above the color rows -- now each lives inline on its paired color row
+  // (Outer Spacing with Outer Border, Photo Spacing with Canvas Background,
+  // since Photo Border Color itself only shows once something's selected
+  // but photo border *width* affects every photo immediately).
+  test('the Outer/Photo Spacing sliders sit on the same row as their paired color control', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+
+    const outerSpacingInRow = await page.evaluate(() =>
+      document.querySelector('.color-row[data-target="outer"]').contains(document.getElementById('outerSpacing'))
+    );
+    const innerSpacingInRow = await page.evaluate(() =>
+      document.querySelector('.color-row[data-target="canvas"]').contains(document.getElementById('innerSpacing'))
+    );
+    expect(outerSpacingInRow).toBe(true);
+    expect(innerSpacingInRow).toBe(true);
+  });
+
+  // The Google Photos button only works for accounts approved via the
+  // README's own OAuth setup steps -- effectively just the app's owner --
+  // so it stays a small, discreet icon rather than competing for attention
+  // with "Choose Files," the button everyone else actually wants first.
+  test('the Google Photos button is a small discreet icon, not a labeled button competing with Choose Files', async ({ page }) => {
+    await page.goto('/index.html');
+
+    const btn = page.locator('#gphotosImportBtn');
+    await expect(btn).toHaveClass(/info-toggle-btn/);
+    await expect(btn).not.toHaveText(/Google Photos/);
+    const box = await btn.boundingBox();
+    expect(box.width).toBeLessThanOrEqual(48); // same small square as the (i) info button
+  });
 });

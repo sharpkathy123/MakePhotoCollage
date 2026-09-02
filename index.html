@@ -146,6 +146,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
       gap: 10px;
       padding: 8px 0;
       border-bottom: 1px solid var(--border-color);
@@ -163,8 +164,25 @@
     .color-row-controls {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
       gap: 8px;
-      flex-shrink: 0;
+    }
+
+    /* A width slider sharing a color row's line stays compact -- the row's
+       own swatch/eyedropper/none still need their room -- rather than the
+       full-width block sliders get everywhere else on their own line. */
+    .color-row-controls input[type="range"] {
+      width: 96px;
+      padding: 0;
+      border: none;
+      background: none;
+    }
+
+    .color-row-controls .spacing-val {
+      font-size: 0.75rem;
+      color: #8e8e93;
+      min-width: 30px;
     }
 
     .icon-btn {
@@ -341,11 +359,6 @@
       min-width: 0;
     }
 
-    .photo-source-row .btn-secondary {
-      flex-shrink: 0;
-      white-space: nowrap;
-    }
-
     .info-toggle-btn {
       flex-shrink: 0;
       width: 44px;
@@ -369,7 +382,7 @@
     <label for="imgInput">1. Select Photos</label>
     <div class="photo-source-row">
       <input type="file" id="imgInput" accept="image/*" multiple>
-      <button class="btn-secondary" type="button" id="gphotosImportBtn" onclick="importFromGooglePhotos()">📷 Google Photos</button>
+      <button type="button" class="info-toggle-btn" id="gphotosImportBtn" onclick="importFromGooglePhotos()" aria-label="Import from Google Photos" title="Import from Google Photos">📷</button>
       <button type="button" class="info-toggle-btn" id="gphotosInfoBtn" onclick="toggleGphotosInfo()" aria-expanded="false" aria-label="About Google Photos import" title="About Google Photos import">ⓘ</button>
     </div>
     <div id="gphotosInfo" hidden style="font-size:0.7rem; color:#8e8e93; margin-top:4px;">Google Photos import only works for accounts approved in the README's setup steps — not submitted for Google's public review.</div>
@@ -384,20 +397,17 @@
   </div>
 
   <div class="section-title">2. Style</div>
-  <div class="row">
-    <div class="control">
-      <label for="innerSpacing">Photo Spacing (sets border thickness): <span id="innerSpacingVal">16px</span></label>
-      <input type="range" id="innerSpacing" min="0" max="100" value="16">
-    </div>
-    <div class="control">
-      <label for="outerSpacing">Outer Spacing: <span id="outerSpacingVal">24px</span></label>
-      <input type="range" id="outerSpacing" min="0" max="150" value="24">
-    </div>
-  </div>
 
+  <!-- Outer Spacing pairs with Outer Border (both describe the collage's
+       own outer frame); Photo Spacing pairs with Canvas Background so it
+       stays reachable without a selection -- Photo Border Color itself only
+       means something once a photo is selected (see #photoControls below),
+       but photo border *width* affects every photo immediately. -->
   <div class="color-row" data-target="outer">
     <label for="outerColor">Outer Border</label>
     <div class="color-row-controls">
+      <input type="range" id="outerSpacing" min="0" max="150" value="24" aria-label="Outer Border width" title="Outer Border width">
+      <span class="spacing-val" id="outerSpacingVal">24px</span>
       <input type="color" class="color-picker-box" id="outerColor" value="#1c1c1e">
       <button type="button" class="icon-btn eyedropper-btn" data-target="outer" title="Pick a color from the collage" aria-label="Pick Outer Border color from the collage">💧</button>
       <button type="button" class="icon-btn none-btn" data-target="outer" title="Transparent" aria-label="Set Outer Border to transparent">∅</button>
@@ -407,6 +417,8 @@
   <div class="color-row" data-target="canvas">
     <label for="canvasColor">Canvas Background</label>
     <div class="color-row-controls">
+      <input type="range" id="innerSpacing" min="0" max="100" value="16" aria-label="Photo Border width" title="Photo Border width">
+      <span class="spacing-val" id="innerSpacingVal">16px</span>
       <input type="color" class="color-picker-box" id="canvasColor" value="#f2f2f7">
       <button type="button" class="icon-btn eyedropper-btn" data-target="canvas" title="Pick a color from the collage" aria-label="Pick Canvas Background color from the collage">💧</button>
       <button type="button" class="icon-btn none-btn" data-target="canvas" title="Transparent" aria-label="Set Canvas Background to transparent">∅</button>
@@ -509,7 +521,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609021200').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609021500').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -1095,11 +1107,15 @@
 
     gphotosImportBtn.disabled = true;
 
+    // The icon itself stays static -- this button is a small, discreet
+    // icon (see the .info-toggle-btn styling), not room for status text --
+    // so in-progress state shows via its title tooltip and disabled state
+    // instead of overwriting its content.
     try {
-      gphotosImportBtn.textContent = 'Connecting…';
+      gphotosImportBtn.title = 'Connecting…';
       const accessToken = await requestGooglePhotosAccessToken(clientId);
 
-      gphotosImportBtn.textContent = 'Preparing picker…';
+      gphotosImportBtn.title = 'Preparing picker…';
       const session = await createPickerSession(accessToken);
 
       pendingGPhotosSession = session;
@@ -1113,7 +1129,7 @@
       console.error('Google Photos import failed:', err);
       alert(err.message || 'Could not import photos from Google Photos.');
       gphotosImportBtn.disabled = false;
-      gphotosImportBtn.textContent = '📷 Google Photos';
+      gphotosImportBtn.title = 'Import from Google Photos';
     }
   }
 
@@ -1162,7 +1178,7 @@
       gphotosOpenPickerBtn.style.display = 'none';
       gphotosImportBtn.style.display = '';
       gphotosImportBtn.disabled = false;
-      gphotosImportBtn.textContent = '📷 Google Photos';
+      gphotosImportBtn.title = 'Import from Google Photos';
     }
   }
 
@@ -1386,14 +1402,36 @@
     requestRender();
   });
 
+  // Photo Spacing sets how thick each photo's own border renders
+  // (borderThickness = innerSpacing / 2, see drawPhotoUnit) -- Outer
+  // Spacing must be at least that thick too, or a photo's border would run
+  // past the outer edge of the canvas instead of sitting inside it.
+  // Enforced whichever slider changes: growing Photo Spacing past the
+  // current Outer Spacing pulls Outer Spacing up with it, and Outer
+  // Spacing can't be dragged below that floor directly either.
+  function enforceMinOuterSpacing() {
+    const minOuter = Math.ceil(parseFloat(innerSpacing.value) / 2);
+    if (parseFloat(outerSpacing.value) < minOuter) {
+      outerSpacing.value = minOuter;
+    }
+  }
+
   // Fast Feedback Listeners
   [innerSpacing, outerSpacing].forEach(el => {
     el.addEventListener('input', () => {
-      if (el === innerSpacing) innerSpacingVal.textContent = `${innerSpacing.value}px`;
-      if (el === outerSpacing) outerSpacingVal.textContent = `${outerSpacing.value}px`;
+      enforceMinOuterSpacing();
+      innerSpacingVal.textContent = `${innerSpacing.value}px`;
+      outerSpacingVal.textContent = `${outerSpacing.value}px`;
       requestRender();
     });
   });
+
+  // Also apply once up front -- covers a future default-value change (today's
+  // 16/24 defaults already satisfy it) and keeps the displayed "24px" label
+  // guaranteed correct rather than just trusting the HTML attribute.
+  enforceMinOuterSpacing();
+  innerSpacingVal.textContent = `${innerSpacing.value}px`;
+  outerSpacingVal.textContent = `${outerSpacing.value}px`;
 
   function requestRender() {
     if (animFrameId) cancelAnimationFrame(animFrameId);

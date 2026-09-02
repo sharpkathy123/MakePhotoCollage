@@ -105,7 +105,10 @@ test.describe('Google Photos import', () => {
 
     expect(alertMessage).toContain('popup_closed');
     await expect(page.locator('#gphotosImportBtn')).toBeEnabled();
-    await expect(page.locator('#gphotosImportBtn')).toHaveText('📷 Google Photos');
+    // The icon itself stays static (a small, discreet button) -- status
+    // resets via its title tooltip instead.
+    await expect(page.locator('#gphotosImportBtn')).toHaveText('📷');
+    await expect(page.locator('#gphotosImportBtn')).toHaveAttribute('title', 'Import from Google Photos');
   });
 
   // Regression test: the disclaimer about approved-accounts-only used to
