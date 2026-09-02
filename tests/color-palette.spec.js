@@ -66,13 +66,8 @@ test.describe('Sampled color palette', () => {
     expect(await page.evaluate(() => canvasColorVal)).toBe(canvasColorBefore);
   });
 
-  test('the Photo Border Color row is hidden (inside the per-photo panel) with nothing selected', async ({ page }) => {
-    await page.goto('/index.html');
-    await loadPhotos(page, [FIXTURES.redLandscape]);
-
-    await expect(page.locator('#borderColorRow')).toBeHidden();
-
-    await page.click('button:text("Select All")');
-    await expect(page.locator('#borderColorRow')).toBeVisible();
-  });
+  // Regression coverage for Photo Border Color's own disabled-but-visible
+  // state (it stays in the always-visible color-row list; only its swatch/
+  // eyedropper/none disable without a selection) lives in
+  // layout-reorg.spec.js, alongside the rest of that list's layout.
 });

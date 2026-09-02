@@ -33,6 +33,11 @@ test.describe('Spacing & colors', () => {
     await clickOption(page, '#layoutTypeGroup', 'horizontal');
     await page.waitForTimeout(100);
 
+    // The cell-to-cell gap is 1.5x Photo Spacing: each photo's own border
+    // consumes half of Photo Spacing on its side (borderThickness = s/2,
+    // s/2 + s/2 = s), plus one more half-width canvas-colored strip shows
+    // between them -- the same width already visible between the outer
+    // ring and an edge photo -- rather than the two borders meeting flush.
     await page.fill('#innerSpacing', '10');
     await page.dispatchEvent('#innerSpacing', 'input');
     await page.waitForTimeout(100);
@@ -43,8 +48,32 @@ test.describe('Spacing & colors', () => {
     await page.waitForTimeout(100);
     const gapAt50 = await page.evaluate(() => cellBounds[1].x - (cellBounds[0].x + cellBounds[0].w));
 
-    expect(gapAt10).toBe(10);
-    expect(gapAt50).toBe(50);
+    expect(gapAt10).toBe(15);
+    expect(gapAt50).toBe(75);
+  });
+
+  // Regression coverage for the new canvas-colored strip between adjacent
+  // photos: it should be exactly one borderThickness wide (s/2), matching
+  // the strip already visible at the outer edge (between the Outer Border
+  // ring and an edge photo's own border) -- not zero (borders meeting
+  // flush, the old behavior) and not the full old gap.
+  test('a canvas-colored strip of one borderThickness shows between adjacent photos', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.greenSquare, FIXTURES.yellowSquare]);
+    await clickOption(page, '#layoutTypeGroup', 'horizontal');
+    await page.click('button:text("Deselect All")'); // avoid the selection outline overlapping the sample below
+    await page.fill('#innerSpacing', '40'); // borderThickness 20, comfortably sampleable
+    await page.dispatchEvent('#innerSpacing', 'input');
+    await page.evaluate(() => { canvasColorVal = '#ff8800'; requestRender(); });
+    await page.waitForTimeout(100);
+
+    const midGapPoint = await page.evaluate(() => {
+      const gapStart = cellBounds[0].x + cellBounds[0].w;
+      const gapEnd = cellBounds[1].x;
+      return { x: Math.round((gapStart + gapEnd) / 2), y: cellBounds[0].y + Math.floor(cellBounds[0].h / 2) };
+    });
+    const midPixel = await samplePixel(page, midGapPoint.x, midGapPoint.y);
+    expect(midPixel).toEqual([255, 136, 0, 255]); // canvas background, not either photo's border
   });
 
   // Regression coverage: Photo Spacing sets each photo's own border

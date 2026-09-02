@@ -81,9 +81,8 @@ test.describe('Page layout & reachability', () => {
 
   // Regression coverage: the width sliders used to sit in their own row
   // above the color rows -- now each lives inline on its paired color row
-  // (Outer Spacing with Outer Border, Photo Spacing with Canvas Background,
-  // since Photo Border Color itself only shows once something's selected
-  // but photo border *width* affects every photo immediately).
+  // (Outer Spacing with Outer Border, Photo Spacing with Photo Border
+  // Color -- both describe the same thing, that photo's own frame).
   test('the Outer/Photo Spacing sliders sit on the same row as their paired color control', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
@@ -92,10 +91,49 @@ test.describe('Page layout & reachability', () => {
       document.querySelector('.color-row[data-target="outer"]').contains(document.getElementById('outerSpacing'))
     );
     const innerSpacingInRow = await page.evaluate(() =>
-      document.querySelector('.color-row[data-target="canvas"]').contains(document.getElementById('innerSpacing'))
+      document.querySelector('.color-row[data-target="border"]').contains(document.getElementById('innerSpacing'))
     );
     expect(outerSpacingInRow).toBe(true);
     expect(innerSpacingInRow).toBe(true);
+  });
+
+  // Regression coverage: Photo Border Color used to live in a separate,
+  // conditionally-hidden panel from Outer Border/Canvas Background -- now
+  // all three stay in one list, with just its own swatch/eyedropper/none
+  // disabling (not the row disappearing) when nothing's selected, the same
+  // disabled-but-visible treatment Corner Radius already uses.
+  test('Photo Border Color stays in the same always-visible list as Outer Border and Canvas Background', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+
+    await expect(page.locator('.color-row[data-target="border"]')).toBeVisible();
+    await expect(page.locator('#borderColor')).toBeDisabled();
+    await expect(page.locator('#borderColorLabel')).toHaveClass(/disabled/);
+    // Its width slider stays fully active regardless -- it affects every
+    // photo immediately, not just a selection.
+    await expect(page.locator('#innerSpacing')).toBeEnabled();
+
+    await page.click('button:text("Select All")');
+    await expect(page.locator('#borderColor')).toBeEnabled();
+    await expect(page.locator('#borderColorLabel')).not.toHaveClass(/disabled/);
+  });
+
+  // The selection toolbar (which photo(s) you're about to edit) now sits
+  // right above the collage itself, not buried in the Style section below.
+  test('the photo selection toolbar sits above the canvas, not inside the Style section', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+
+    const order = await page.evaluate(() => {
+      const all = Array.from(document.querySelectorAll('#selectedPhotoLabel, #canvas-container, .section-title'));
+      return all.map((el) => el.id || el.textContent.trim());
+    });
+    const labelIdx = order.indexOf('selectedPhotoLabel');
+    const canvasIdx = order.indexOf('canvas-container');
+    const styleIdx = order.indexOf('2. Style');
+    expect(labelIdx).toBeGreaterThanOrEqual(0);
+    expect(labelIdx).toBeLessThan(canvasIdx);
+    expect(canvasIdx).toBeLessThan(styleIdx);
   });
 
   // The Google Photos button only works for accounts approved via the

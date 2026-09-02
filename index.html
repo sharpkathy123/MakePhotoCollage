@@ -161,6 +161,17 @@
       font-size: 0.85rem;
     }
 
+    /* Photo Border Color's own controls (not its width slider, which stays
+       active regardless -- see syncSliderControls) dim rather than hide
+       when nothing is selected, the same disabled-but-visible treatment
+       #radiusGroup already uses below. */
+    .color-row label.disabled,
+    .icon-btn:disabled,
+    .color-picker-box:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
     .color-row-controls {
       display: flex;
       align-items: center;
@@ -382,13 +393,25 @@
     <label for="imgInput">1. Select Photos</label>
     <div class="photo-source-row">
       <input type="file" id="imgInput" accept="image/*" multiple>
-      <button type="button" class="info-toggle-btn" id="gphotosImportBtn" onclick="importFromGooglePhotos()" aria-label="Import from Google Photos" title="Import from Google Photos">📷</button>
+      <button type="button" class="info-toggle-btn" id="gphotosImportBtn" onclick="importFromGooglePhotos()" aria-label="Import from Google Photos" title="Import from Google Photos">☁️</button>
       <button type="button" class="info-toggle-btn" id="gphotosInfoBtn" onclick="toggleGphotosInfo()" aria-expanded="false" aria-label="About Google Photos import" title="About Google Photos import">ⓘ</button>
     </div>
     <div id="gphotosInfo" hidden style="font-size:0.7rem; color:#8e8e93; margin-top:4px;">Google Photos import only works for accounts approved in the README's setup steps — not submitted for Google's public review.</div>
     <button class="btn-secondary" type="button" id="gphotosOpenPickerBtn" onclick="openGooglePhotosPickerTab()" style="display:none; width:100%; margin-top:6px;">🔗 Tap to Open Google Photos</button>
     <button class="btn-secondary" type="button" id="startNewBtn" onclick="startNewCollage()" style="display:none; width:100%; margin-top:6px;">🗑️ Start New Collage</button>
   </div>
+
+  <!-- Which photo(s) you're about to edit -- lives right above the collage
+       itself, since it's about what's shown there. -->
+  <div style="display:flex; justify-content:space-between; align-items:center; margin:0 0 8px; flex-wrap:wrap; gap:6px;">
+    <span style="font-size:0.85rem; font-weight:700; color:var(--accent-color);" id="selectedPhotoLabel">No Photos Selected</span>
+    <div class="button-group-inline">
+      <button class="btn-secondary" type="button" id="multiSelectToggleBtn" onclick="toggleMultiSelectMode()">Select Multiple</button>
+      <button class="btn-secondary" type="button" onclick="selectAllPhotos()">Select All</button>
+      <button class="btn-secondary" type="button" onclick="deselectAllPhotos()">Deselect All</button>
+    </div>
+  </div>
+  <div class="touch-hint" id="multiSelectHint" style="display:none;">🖐 Multi-select on — tap photos to add/remove from selection</div>
 
   <div id="canvas-container">
     <canvas id="collageCanvas"></canvas>
@@ -398,11 +421,14 @@
 
   <div class="section-title">2. Style</div>
 
-  <!-- Outer Spacing pairs with Outer Border (both describe the collage's
-       own outer frame); Photo Spacing pairs with Canvas Background so it
-       stays reachable without a selection -- Photo Border Color itself only
-       means something once a photo is selected (see #photoControls below),
-       but photo border *width* affects every photo immediately. -->
+  <!-- All three color targets stay together as one list -- Outer Spacing
+       pairs with Outer Border and Photo Spacing pairs with Photo Border
+       Color (each width slider next to the color it borders). Photo Border
+       Color's own swatch/eyedropper/none disable (see syncSliderControls)
+       when nothing is selected, matching how Corner Radius below already
+       disables-but-stays-visible rather than being hidden outright -- its
+       width slider stays active regardless, since photo border *width*
+       affects every photo immediately, selection or not. -->
   <div class="color-row" data-target="outer">
     <label for="outerColor">Outer Border</label>
     <div class="color-row-controls">
@@ -414,43 +440,31 @@
     </div>
   </div>
 
-  <div class="color-row" data-target="canvas">
-    <label for="canvasColor">Canvas Background</label>
+  <div class="color-row" data-target="border">
+    <label for="borderColor" id="borderColorLabel">Photo Border Color</label>
     <div class="color-row-controls">
       <input type="range" id="innerSpacing" min="0" max="100" value="16" aria-label="Photo Border width" title="Photo Border width">
       <span class="spacing-val" id="innerSpacingVal">16px</span>
+      <input type="color" class="color-picker-box" id="borderColor" value="#ffffff">
+      <button type="button" class="icon-btn eyedropper-btn" data-target="border" title="Pick a color from the collage" aria-label="Pick Photo Border color from the collage">💧</button>
+      <button type="button" class="icon-btn none-btn" data-target="border" title="Transparent" aria-label="Set Photo Border to transparent">∅</button>
+    </div>
+  </div>
+
+  <div class="color-row" data-target="canvas">
+    <label for="canvasColor">Canvas Background</label>
+    <div class="color-row-controls">
       <input type="color" class="color-picker-box" id="canvasColor" value="#f2f2f7">
       <button type="button" class="icon-btn eyedropper-btn" data-target="canvas" title="Pick a color from the collage" aria-label="Pick Canvas Background color from the collage">💧</button>
       <button type="button" class="icon-btn none-btn" data-target="canvas" title="Transparent" aria-label="Set Canvas Background to transparent">∅</button>
     </div>
   </div>
 
-  <!-- Selecting a photo (or Select All) reveals the rest below: per-photo
-       controls that need something selected to mean anything. -->
-  <div style="display:flex; justify-content:space-between; align-items:center; margin:10px 0 8px; flex-wrap:wrap; gap:6px;">
-    <span style="font-size:0.85rem; font-weight:700; color:var(--accent-color);" id="selectedPhotoLabel">No Photos Selected</span>
-    <div class="button-group-inline">
-      <button class="btn-secondary" type="button" id="multiSelectToggleBtn" onclick="toggleMultiSelectMode()">Select Multiple</button>
-      <button class="btn-secondary" type="button" onclick="selectAllPhotos()">Select All</button>
-      <button class="btn-secondary" type="button" onclick="deselectAllPhotos()">Deselect All</button>
-    </div>
-  </div>
-  <div class="touch-hint" id="multiSelectHint" style="display:none;">🖐 Multi-select on — tap photos to add/remove from selection</div>
-
   <div class="photo-controls-card" id="photoControls" style="display:none;">
     <div class="button-group-inline" style="margin-bottom:10px;">
       <button class="btn-secondary" type="button" onclick="resetSelectedTransform()">Reset Photo</button>
       <button class="btn-secondary" type="button" onclick="bringSelectedToFront()">Bring to Front</button>
       <button class="btn-secondary" type="button" onclick="sendSelectedToBack()">Send to Back</button>
-    </div>
-
-    <div class="color-row" id="borderColorRow" data-target="border">
-      <label for="borderColor">Photo Border Color</label>
-      <div class="color-row-controls">
-        <input type="color" class="color-picker-box" id="borderColor" value="#ffffff">
-        <button type="button" class="icon-btn eyedropper-btn" data-target="border" title="Pick a color from the collage" aria-label="Pick Photo Border color from the collage">💧</button>
-        <button type="button" class="icon-btn none-btn" data-target="border" title="Transparent" aria-label="Set Photo Border to transparent">∅</button>
-      </div>
     </div>
 
     <div class="row">
@@ -521,7 +535,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609021500').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609022200').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -563,6 +577,7 @@
   const outerColor = document.getElementById('outerColor');
   const canvasColor = document.getElementById('canvasColor');
   const borderColor = document.getElementById('borderColor');
+  const borderColorLabel = document.getElementById('borderColorLabel');
   const layoutTypeGroup = document.getElementById('layoutTypeGroup');
   const gridCols = document.getElementById('gridCols');
   const gridColsGroup = document.getElementById('gridColsGroup');
@@ -601,7 +616,7 @@
   // cellY are always computed from a photo's own index regardless of
   // zOrder, so reordering the stack never moves a photo's grid position.
   let zOrder = [];
-  let selectedIndices = [0];
+  let selectedIndices = [];
   let cellBounds = [];
   let activeCols = 3;
   let multiSelectMode = false;
@@ -1260,13 +1275,22 @@
   }
 
   function syncSliderControls() {
-    // The whole per-photo panel (Photo Border Color, Scale/Rotation, Frame
+    // The per-photo panel (Reset/Front/Back, Scale/Rotation, Frame
     // Shape/Behavior, Corner Radius) only means something once 1+ photos
     // are selected -- Select All or tapping a photo reveals it, Deselect
-    // All hides it again. Also cancels an armed Photo Border Color
-    // eyedropper, since there'd be nothing left to apply the sample to.
-    photoControls.style.display = selectedIndices.length ? 'block' : 'none';
-    if (!selectedIndices.length && samplingTarget === 'border') {
+    // All hides it again.
+    const hasSelection = !!selectedIndices.length;
+    photoControls.style.display = hasSelection ? 'block' : 'none';
+
+    // Photo Border Color stays visible in the color-row list alongside
+    // Outer Border/Canvas Background either way, but its own swatch/
+    // eyedropper/none disable without a selection to apply to -- its width
+    // slider (innerSpacing) is untouched here, since photo border width
+    // affects every photo immediately, selection or not.
+    borderColorLabel.classList.toggle('disabled', !hasSelection);
+    borderColor.disabled = !hasSelection;
+    document.querySelectorAll('[data-target="border"].icon-btn').forEach(btn => { btn.disabled = !hasSelection; });
+    if (!hasSelection && samplingTarget === 'border') {
       disarmEyedropper();
     }
 
@@ -1459,7 +1483,13 @@
   // per-cell dimensions plus the resulting total content area (before
   // outer spacing) -- a read-only pass over rawImages/photoMasks, no
   // canvas/ctx involved.
-  function layoutCells(layout, cols, rows, s) {
+  // interiorGap is the actual distance between two neighboring cells --
+  // wider than s (the edge-to-first-cell gap, unchanged) by one
+  // borderThickness, so a canvas-colored strip shows between adjacent
+  // photos the same width as the one already visible between the outer
+  // ring and an edge photo, rather than their own borders (s/2 each)
+  // meeting perfectly flush with nothing showing between them.
+  function layoutCells(layout, cols, rows, s, interiorGap) {
     const baseDimension = 600;
 
     const cellLayouts = rawImages.map((img, idx) => {
@@ -1484,16 +1514,16 @@
     let totalW = 0, totalH = 0;
 
     if (layout === 'grid') {
-      totalW = (baseDimension * cols) + (s * (cols + 1));
-      totalH = (baseDimension * rows) + (s * (rows + 1));
+      totalW = (baseDimension * cols) + (s * 2) + (interiorGap * Math.max(0, cols - 1));
+      totalH = (baseDimension * rows) + (s * 2) + (interiorGap * Math.max(0, rows - 1));
     } else if (layout === 'horizontal') {
       const sumWidths = cellLayouts.reduce((acc, cell) => acc + cell.w, 0);
-      totalW = sumWidths + (s * (rawImages.length + 1));
+      totalW = sumWidths + (s * 2) + (interiorGap * Math.max(0, rawImages.length - 1));
       totalH = baseDimension + (s * 2);
     } else { // vertical
       const sumHeights = cellLayouts.reduce((acc, cell) => acc + cell.h, 0);
       totalW = baseDimension + (s * 2);
-      totalH = sumHeights + (s * (rawImages.length + 1));
+      totalH = sumHeights + (s * 2) + (interiorGap * Math.max(0, rawImages.length - 1));
     }
 
     return { baseDimension, cellLayouts, totalW, totalH };
@@ -1505,7 +1535,7 @@
   // geometry (frame position, content fit, mask size). Pushes onto the
   // module-level cellBounds array (the caller resets it first) and returns
   // the geometry, keyed by photo index, for the draw pass below.
-  function computeRenderGeometry(cellLayouts, baseDimension, layout, cols, s, b) {
+  function computeRenderGeometry(cellLayouts, baseDimension, layout, cols, s, b, interiorGap) {
     let runningOffset = 0;
     const renderGeom = [];
 
@@ -1516,16 +1546,16 @@
       if (layout === 'grid') {
         const c = idx % cols;
         const rw = Math.floor(idx / cols);
-        cellX = b + s + c * (baseDimension + s);
-        cellY = b + s + rw * (baseDimension + s);
+        cellX = b + s + c * (baseDimension + interiorGap);
+        cellY = b + s + rw * (baseDimension + interiorGap);
       } else if (layout === 'horizontal') {
         cellX = b + s + runningOffset;
         cellY = b + s;
-        runningOffset += cellDim.w + s;
+        runningOffset += cellDim.w + interiorGap;
       } else { // vertical
         cellX = b + s;
         cellY = b + s + runningOffset;
-        runningOffset += cellDim.h + s;
+        runningOffset += cellDim.h + interiorGap;
       }
 
       const cellW = cellDim.w;
@@ -1665,13 +1695,15 @@
     const s = parseInt(innerSpacing.value, 10) || 0;
     const b = parseInt(outerSpacing.value, 10) || 0;
     const layout = layoutType;
+    const borderThickness = s / 2;
+    const interiorGap = s + borderThickness;
 
     const cols = Math.max(1, activeCols || 1);
     const rows = Math.max(1, Math.ceil(rawImages.length / cols));
 
     cellBounds = [];
 
-    const { baseDimension, cellLayouts, totalW, totalH } = layoutCells(layout, cols, rows, s);
+    const { baseDimension, cellLayouts, totalW, totalH } = layoutCells(layout, cols, rows, s, interiorGap);
 
     const collageW = totalW + (b * 2);
     const collageH = totalH + (b * 2);
@@ -1712,7 +1744,7 @@
     // photoMask.borderColor) that hugs its own mask shape directly, instead
     // of a single flat color filling the whole gap area -- so there's no
     // separate Inner Area Background fill here any more.
-    const renderGeom = computeRenderGeometry(cellLayouts, baseDimension, layout, cols, s, b);
+    const renderGeom = computeRenderGeometry(cellLayouts, baseDimension, layout, cols, s, b, interiorGap);
 
     // Draw Image Cells, in stacking order (zOrder) rather than load order --
     // zOrder[0] draws first (bottommost), the last entry draws last (on
@@ -1720,7 +1752,6 @@
     // slot. Falls back to load order if zOrder is somehow out of sync
     // (shouldn't happen in normal use, but keeps rendering robust).
     const drawOrder = zOrder.length === rawImages.length ? zOrder : rawImages.map((_, i) => i);
-    const borderThickness = s / 2;
 
     drawOrder.forEach((idx) => {
       const g = renderGeom[idx];
@@ -2115,6 +2146,7 @@
   }
 
   updateUI();
+  syncSliderControls(); // starts Photo Border Color's controls correctly disabled (nothing selected yet)
 </script>
 
 </body>

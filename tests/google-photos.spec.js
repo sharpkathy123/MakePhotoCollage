@@ -107,7 +107,7 @@ test.describe('Google Photos import', () => {
     await expect(page.locator('#gphotosImportBtn')).toBeEnabled();
     // The icon itself stays static (a small, discreet button) -- status
     // resets via its title tooltip instead.
-    await expect(page.locator('#gphotosImportBtn')).toHaveText('📷');
+    await expect(page.locator('#gphotosImportBtn')).toHaveText('☁️');
     await expect(page.locator('#gphotosImportBtn')).toHaveAttribute('title', 'Import from Google Photos');
   });
 
