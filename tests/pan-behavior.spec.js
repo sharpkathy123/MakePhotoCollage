@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos, cellCenter, appPointToViewport, clickOption, samplePixel, getActiveOptionValue } = require('./helpers');
+const { FIXTURES, loadPhotos, cellCenter, appPointToViewport, clickOption, samplePixel, getActiveOptionValue, pinchGesture } = require('./helpers');
 
 test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
   // A freshly loaded photo defaults to Attached ("Moving Frame") behavior --
@@ -145,60 +145,58 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     expect(afterAttachedDrag.y).toBeGreaterThan(40);
   });
 
-  // Regression test: the Scale slider (and pinch, which routes through the
-  // same setGestureScale helper) must write to the field the CURRENT mode
+  // Regression test: a pinch zoom must write to the field the CURRENT mode
   // actually renders -- scale for Fixed, frameScale for Attached -- leaving
   // the other field untouched, exactly like drag already does for x/y vs.
   // panX/panY.
-  test('the Scale slider updates scale in Fixed mode and frameScale in Attached mode, leaving the other field untouched', async ({ page }) => {
+  test('a pinch zoom updates scale in Fixed mode and frameScale in Attached mode, leaving the other field untouched', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
     await page.click('button:text("Select All")'); // nothing is selected by default
     await page.evaluate(() => { photoMasks[0].behavior = 'fixed'; });
 
-    await page.fill('#modScale', '1.6');
-    await page.dispatchEvent('#modScale', 'input');
+    const center = await cellCenter(page, 0);
+    await pinchGesture(page, center, { startDist: 100, endDist: 160 });
     await page.waitForTimeout(50);
     let t = await page.evaluate(() => ({ ...transforms[0] }));
-    expect(t.scale).toBe(1.6);
+    expect(t.scale).toBeCloseTo(1.6, 2);
     expect(t.frameScale).toBe(1);
 
     await clickOption(page, '#maskBehaviorGroup', 'attached');
-    await page.fill('#modScale', '2.2');
-    await page.dispatchEvent('#modScale', 'input');
+    await pinchGesture(page, center, { startDist: 100, endDist: 220 });
     await page.waitForTimeout(50);
     t = await page.evaluate(() => ({ ...transforms[0] }));
-    expect(t.frameScale).toBe(2.2);
-    expect(t.scale).toBe(1.6); // untouched, preserved from the earlier Fixed-mode use
+    expect(t.frameScale).toBeCloseTo(2.2, 2);
+    expect(t.scale).toBeCloseTo(1.6, 2); // untouched, preserved from the earlier Fixed-mode use
   });
 
-  // Regression test: the Rotate slider used to always write to `rot`
-  // regardless of mode, which -- because `rot` also rotates the frame/mask
-  // (see renderCollage) -- meant rotating a Fixed-mode ("Fixed Window")
-  // photo visibly rotated the window itself too, indistinguishable from
-  // Attached. Fixed mode is supposed to be a stationary window with the
-  // photo free to move behind it, so it needs its own content-only
-  // rotation field (panRot), exactly like scale/frameScale above.
-  test('the Rotate slider updates panRot in Fixed mode and rot in Attached mode, leaving the other field untouched', async ({ page }) => {
+  // Regression test: rotation used to always write to `rot` regardless of
+  // mode, which -- because `rot` also rotates the frame/mask (see
+  // renderCollage) -- meant rotating a Fixed-mode ("Fixed Window") photo
+  // visibly rotated the window itself too, indistinguishable from Attached.
+  // Fixed mode is supposed to be a stationary window with the photo free to
+  // move behind it, so it needs its own content-only rotation field
+  // (panRot), exactly like scale/frameScale above.
+  test('a pinch twist updates panRot in Fixed mode and rot in Attached mode, leaving the other field untouched', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
     await page.click('button:text("Select All")'); // nothing is selected by default
+    await page.click('#rotationLockBtn'); // unlock -- locked by default
     await page.evaluate(() => { photoMasks[0].behavior = 'fixed'; });
 
-    await page.fill('#modRotate', '20');
-    await page.dispatchEvent('#modRotate', 'input');
+    const center = await cellCenter(page, 0);
+    await pinchGesture(page, center, { startDist: 100, endDist: 100, startAngle: 0, endAngle: 20 });
     await page.waitForTimeout(50);
     let t = await page.evaluate(() => ({ ...transforms[0] }));
-    expect(t.panRot).toBe(20);
+    expect(t.panRot).toBeCloseTo(20, 1);
     expect(t.rot).toBe(0);
 
     await clickOption(page, '#maskBehaviorGroup', 'attached');
-    await page.fill('#modRotate', '65');
-    await page.dispatchEvent('#modRotate', 'input');
+    await pinchGesture(page, center, { startDist: 100, endDist: 100, startAngle: 0, endAngle: 65 });
     await page.waitForTimeout(50);
     t = await page.evaluate(() => ({ ...transforms[0] }));
-    expect(t.rot).toBe(65);
-    expect(t.panRot).toBe(20); // untouched, preserved from the earlier Fixed-mode use
+    expect(t.rot).toBeCloseTo(65, 1);
+    expect(t.panRot).toBeCloseTo(20, 1); // untouched, preserved from the earlier Fixed-mode use
   });
 
   // Regression test (the actual bug report): in Fixed mode, rotating must
@@ -208,11 +206,12 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
   // rotated) while points just outside the (still axis-aligned) rectangle
   // stay background throughout (proving the frame itself never rotated,
   // grew, or moved).
-  test('in Fixed mode, the Rotate slider spins the photo content but leaves the frame/mask stationary', async ({ page }) => {
+  test('in Fixed mode, a pinch twist spins the photo content but leaves the frame/mask stationary', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
     await clickOption(page, '#layoutTypeGroup', 'horizontal');
     await page.waitForFunction(() => layoutType === 'horizontal');
+    await page.click('#rotationLockBtn'); // unlock -- locked by default
     await page.evaluate(() => { photoMasks[0].behavior = 'fixed'; });
 
     const points = await page.evaluate(() => {
@@ -242,12 +241,12 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
       expect(await samplePixel(page, ...points[key])).toEqual([255, 255, 255, 255]);
     }
 
-    // Re-select so the Rotate slider (which only applies to whatever's
+    // Re-select so the pinch twist (which only applies to whatever's
     // currently selected) has a photo to act on, then deselect again before
     // sampling for the same reason as above.
     await page.click('button:text("Select All")');
-    await page.fill('#modRotate', '30');
-    await page.dispatchEvent('#modRotate', 'input');
+    const center = await cellCenter(page, 0);
+    await pinchGesture(page, center, { startDist: 100, endDist: 100, startAngle: 0, endAngle: 30 });
     await page.click('button:text("Deselect All")');
     await page.waitForTimeout(50);
 
@@ -317,10 +316,15 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
     await page.click('button:text("Select All")');
+    await page.click('#rotationLockBtn'); // unlock -- locked by default
 
     await clickOption(page, '#maskBehaviorGroup', 'attached');
-    await page.fill('#modRotate', '35');
-    await page.dispatchEvent('#modRotate', 'input');
+    const center = await cellCenter(page, 0);
+    await pinchGesture(page, center, { startDist: 100, endDist: 100, startAngle: 0, endAngle: 35 });
+    // The gesture's own requestRender() is rAF-deferred -- give it a real
+    // paint before reading pixels below, or "before" can race the render
+    // and capture a stale (pre-twist) frame.
+    await page.waitForTimeout(100);
     const beforeTransforms = await page.evaluate(() => transforms.map((t) => ({ ...t })));
     // Stash the "before" pixels in a page-side global and diff entirely
     // inside the page later -- transferring the full ~1.8M-element pixel
@@ -345,22 +349,21 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     });
 
     expect(afterTransforms).toEqual(beforeTransforms);
-    expect(await page.evaluate(() => transforms.map((t) => t.rot))).toEqual([35, 35]);
-    await expect(page.locator('#rotVal')).toHaveText('35°');
+    const rots = await page.evaluate(() => transforms.map((t) => t.rot));
+    rots.forEach((r) => expect(r).toBeCloseTo(35, 1));
     expect(totalPixels).toBeGreaterThan(0);
     expect(diffCount).toBe(0);
   });
 
-  // Regression test: pinching (or dragging the Scale slider) only ever grew
-  // the photo content behind a fixed-size frame -- correct for Fixed mode,
-  // but in Attached mode the mask is supposed to be part of "the photo" and
-  // grow with it, the same way it already moves with it on drag. That's
-  // tracked as a separate field, frameScale, so switching modes never snaps
-  // the frame (see defaultTransform's comment) -- only a subsequent pinch
-  // or Scale-slider drag decides which field it updates. A point just past
-  // the photo's own nominal cell edge should stay background at
-  // frameScale 1, then show photo content once frameScale grows the frame
-  // out to cover it.
+  // Regression test: a pinch zoom only ever grew the photo content behind a
+  // fixed-size frame -- correct for Fixed mode, but in Attached mode the
+  // mask is supposed to be part of "the photo" and grow with it, the same
+  // way it already moves with it on drag. That's tracked as a separate
+  // field, frameScale, so switching modes never snaps the frame (see
+  // defaultTransform's comment) -- only a subsequent pinch decides which
+  // field it updates. A point just past the photo's own nominal cell edge
+  // should stay background at frameScale 1, then show photo content once
+  // frameScale grows the frame out to cover it.
   test('scaling an Attached-mode photo grows the frame/mask itself, not just the content behind it', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);

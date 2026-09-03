@@ -99,6 +99,57 @@ async function getActiveOptionValue(page, groupSelector) {
   }, groupSelector);
 }
 
+// Converts an app-space (canvas pixel resolution) distance to viewport (CSS
+// pixel) distance, using the same canvas scale factor as appPointToViewport.
+async function appDistToViewport(page, dist) {
+  const box = await page.$eval('#collageCanvas', (el) => {
+    const r = el.getBoundingClientRect();
+    return { width: r.width, cw: el.width };
+  });
+  return dist * (box.width / box.cw);
+}
+
+// Dispatches a real two-finger touch gesture on the canvas by constructing
+// actual Touch/TouchEvent objects and dispatching them -- not a mock of the
+// gesture's effects, the genuine touchstart/touchmove/touchend handlers run
+// exactly as they would for a real pinch or twist. `pairs` is an array of
+// [{x,y}, {x,y}] viewport-coordinate pairs: the first fires touchstart, any
+// further ones each fire touchmove, and a final touchend (no touches)
+// closes the gesture.
+async function twoFingerGesture(page, pairs) {
+  await page.evaluate((pairs) => {
+    const canvas = document.getElementById('collageCanvas');
+    function touchEventFor(type, pair) {
+      const touches = pair.map((p, i) => new Touch({ identifier: i, target: canvas, clientX: p.x, clientY: p.y }));
+      return new TouchEvent(type, { touches, changedTouches: touches, bubbles: true, cancelable: true });
+    }
+    canvas.dispatchEvent(touchEventFor('touchstart', pairs[0]));
+    for (let i = 1; i < pairs.length; i++) {
+      canvas.dispatchEvent(touchEventFor('touchmove', pairs[i]));
+    }
+    canvas.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [], bubbles: true, cancelable: true }));
+  }, pairs);
+}
+
+// Simulates a two-finger pinch/twist centered on the given app-space point:
+// two touches start `startDist` (app-space px) apart at `startAngle`
+// degrees and end `endDist` apart at `endAngle` degrees. A single
+// touchmove step is enough -- the app's gesture math only ever compares the
+// current touch positions against the ones captured at touchstart, not the
+// path traveled in between.
+async function pinchGesture(page, centerApp, { startDist, endDist, startAngle = 0, endAngle = 0 } = {}) {
+  const center = await appPointToViewport(page, centerApp.x, centerApp.y);
+  const startD = await appDistToViewport(page, startDist);
+  const endD = await appDistToViewport(page, endDist);
+  const pairAt = (dist, angleDeg) => {
+    const rad = angleDeg * Math.PI / 180;
+    const dx = Math.cos(rad) * dist / 2;
+    const dy = Math.sin(rad) * dist / 2;
+    return [{ x: center.x - dx, y: center.y - dy }, { x: center.x + dx, y: center.y + dy }];
+  };
+  await twoFingerGesture(page, [pairAt(startD, startAngle), pairAt(endD, endAngle)]);
+}
+
 module.exports = {
   FIXTURES,
   loadPhotos,
@@ -109,4 +160,6 @@ module.exports = {
   setColorInput,
   clickOption,
   getActiveOptionValue,
+  twoFingerGesture,
+  pinchGesture,
 };

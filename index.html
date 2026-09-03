@@ -413,10 +413,21 @@
        a selection but still worth seeing as available actions. -->
   <div style="display:flex; justify-content:space-between; align-items:center; margin:0 0 8px; flex-wrap:wrap; gap:6px;">
     <span style="font-size:0.85rem; font-weight:700; color:var(--accent-color);" id="selectedPhotoLabel">No Photos Selected</span>
-    <div class="button-group-inline">
-      <button class="btn-secondary" type="button" id="multiSelectToggleBtn" onclick="toggleMultiSelectMode()">Select Multiple</button>
-      <button class="btn-secondary" type="button" onclick="selectAllPhotos()">Select All</button>
-      <button class="btn-secondary" type="button" onclick="deselectAllPhotos()">Deselect All</button>
+    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+      <!-- Scale/Rotation are gesture-driven now (pinch to zoom, twist to
+           rotate -- see the touchstart/touchmove handlers), same as every
+           other transform. Rotation defaults locked since, unlike zoom, an
+           accidental twist during an ordinary pinch is easy to trigger and
+           hard to notice; tap to unlock before twisting on purpose. A
+           small icon toggle (matching the Google Photos/info buttons)
+           rather than a 4th .button-group-inline button, which would break
+           that group's 3-across flex-basis and wrap onto its own row. -->
+      <button type="button" class="info-toggle-btn" id="rotationLockBtn" onclick="toggleRotationLock()" title="Rotation Locked — tap to unlock" aria-label="Toggle rotation lock" aria-pressed="true">🔒</button>
+      <div class="button-group-inline">
+        <button class="btn-secondary" type="button" id="multiSelectToggleBtn" onclick="toggleMultiSelectMode()">Select Multiple</button>
+        <button class="btn-secondary" type="button" onclick="selectAllPhotos()">Select All</button>
+        <button class="btn-secondary" type="button" onclick="deselectAllPhotos()">Deselect All</button>
+      </div>
     </div>
   </div>
   <div class="button-group-inline" id="selectionActionButtons" style="margin:0 0 8px;">
@@ -428,7 +439,7 @@
 
   <div id="canvas-container">
     <canvas id="collageCanvas"></canvas>
-    <div class="touch-hint" id="touchHint" style="display:none;">🖐 Tap photo to select &bull; Drag to move &bull; Pinch to zoom</div>
+    <div class="touch-hint" id="touchHint" style="display:none;">🖐 Tap photo to select &bull; Drag to move &bull; Pinch to zoom &amp; rotate</div>
     <div class="touch-hint" id="eyedropperHint" style="display:none;">💧 Tap the collage to pick that color</div>
   </div>
 
@@ -474,17 +485,6 @@
   </div>
 
   <div class="photo-controls-card" id="photoControls" style="display:none;">
-    <div class="row">
-      <div class="control">
-        <label>Scale: <span id="scaleVal">1.0</span></label>
-        <input type="range" id="modScale" min="0.1" max="3" step="0.05" value="1">
-      </div>
-      <div class="control">
-        <label>Rotation: <span id="rotVal">0°</span></label>
-        <input type="range" id="modRotate" min="-180" max="180" value="0">
-      </div>
-    </div>
-
     <div class="row">
       <div class="control">
         <label id="maskModeLabel">Frame Shape</label>
@@ -542,7 +542,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609030100').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609030500').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -602,10 +602,7 @@
   const bringToFrontBtn = document.getElementById('bringToFrontBtn');
   const sendToBackBtn = document.getElementById('sendToBackBtn');
   const selectedPhotoLabel = document.getElementById('selectedPhotoLabel');
-  const modScale = document.getElementById('modScale');
-  const modRotate = document.getElementById('modRotate');
-  const scaleVal = document.getElementById('scaleVal');
-  const rotVal = document.getElementById('rotVal');
+  const rotationLockBtn = document.getElementById('rotationLockBtn');
   const multiSelectToggleBtn = document.getElementById('multiSelectToggleBtn');
   const multiSelectHint = document.getElementById('multiSelectHint');
 
@@ -653,8 +650,8 @@
   // panRot spins content behind a frame that doesn't itself turn -- both
   // Fixed mode). All four are always rendered exactly as stored regardless
   // of mode, so switching modes never snaps the frame or the photo; only a
-  // subsequent pinch, Scale-slider, or Rotate-slider gesture decides which
-  // one of a pair a given photo's gesture actually updates.
+  // subsequent pinch-zoom or pinch-twist gesture decides which one of a
+  // pair a given photo's gesture actually updates.
   function clampScale(v) {
     return Math.min(3, Math.max(0.1, parseFloat(v.toFixed(2))));
   }
@@ -682,6 +679,11 @@
   let dragStart = { x: 0, y: 0 };
   let initialTransforms = {};
   let initialPinchDist = null;
+  let initialPinchAngle = null;
+  // Locked by default -- an ordinary two-finger pinch-to-zoom easily drifts
+  // a few degrees of twist along with it, which would otherwise rotate the
+  // photo without anyone meaning to. Toggled via toggleRotationLock().
+  let rotationLocked = true;
   let animFrameId = null;
   // Set by beginCellInteraction when a gesture starts on an already-selected
   // member of a multi-selection -- the drag/pinch runs against the full
@@ -1323,14 +1325,7 @@
       return;
     }
     const primaryIdx = selectedIndices[0];
-    const t = transforms[primaryIdx] || defaultTransform();
     const m = photoMasks[primaryIdx] || defaultPhotoMask();
-    const gestureScale = getGestureScale(t, m.behavior);
-    const gestureRotation = getGestureRotation(t, m.behavior);
-    modScale.value = gestureScale;
-    modRotate.value = gestureRotation;
-    scaleVal.textContent = parseFloat(gestureScale).toFixed(2);
-    rotVal.textContent = `${gestureRotation}°`;
 
     const masks = selectedIndices.map(idx => photoMasks[idx] || defaultPhotoMask());
     setActiveOptionOrMixed(maskModeGroup, masks.map(pm => pm.mode));
@@ -1351,28 +1346,6 @@
       selectedPhotoLabel.textContent = `${selectedIndices.length} Photos Selected`;
     }
   }
-
-  modScale.addEventListener('input', () => {
-    const scale = parseFloat(modScale.value);
-    scaleVal.textContent = scale.toFixed(2);
-    selectedIndices.forEach(idx => {
-      if (!transforms[idx]) return;
-      const behavior = (photoMasks[idx] || defaultPhotoMask()).behavior;
-      setGestureScale(transforms[idx], behavior, scale);
-    });
-    requestRender();
-  });
-
-  modRotate.addEventListener('input', () => {
-    const rot = parseInt(modRotate.value, 10);
-    rotVal.textContent = `${rot}°`;
-    selectedIndices.forEach(idx => {
-      if (!transforms[idx]) return;
-      const behavior = (photoMasks[idx] || defaultPhotoMask()).behavior;
-      setGestureRotation(transforms[idx], behavior, rot);
-    });
-    requestRender();
-  });
 
   function resetSelectedTransform() {
     selectedIndices.forEach(idx => {
@@ -1950,6 +1923,38 @@
     });
   }
 
+  // Applies a pinch twist (change in the angle between the two touch
+  // points, in degrees) to every selected photo -- the rotation counterpart
+  // to applyPinchZoom, gated by rotationLocked so an ordinary pinch's small
+  // incidental twist doesn't rotate anything unless unlocked on purpose.
+  function applyPinchRotation(deltaDegrees) {
+    selectedIndices.forEach(idx => {
+      const init = initialTransforms[idx];
+      if (!init || !transforms[idx]) return;
+      const behavior = (photoMasks[idx] || defaultPhotoMask()).behavior;
+      const base = getGestureRotation(init, behavior);
+      setGestureRotation(transforms[idx], behavior, base + deltaDegrees);
+    });
+  }
+
+  function twoTouchAngle(e) {
+    return Math.atan2(
+      e.touches[1].clientY - e.touches[0].clientY,
+      e.touches[1].clientX - e.touches[0].clientX
+    ) * 180 / Math.PI;
+  }
+
+  function toggleRotationLock() {
+    rotationLocked = !rotationLocked;
+    syncRotationLockButton();
+  }
+
+  function syncRotationLockButton() {
+    rotationLockBtn.textContent = rotationLocked ? '🔒' : '🔓';
+    rotationLockBtn.title = rotationLocked ? 'Rotation Locked — tap to unlock' : 'Rotation Unlocked — tap to lock';
+    rotationLockBtn.setAttribute('aria-pressed', String(rotationLocked));
+  }
+
   canvas.addEventListener('touchstart', (e) => {
     // Without this, browsers fire a synthetic mousedown/click after a quick
     // tap (for legacy no-touch-listener compatibility), which would run our
@@ -1973,6 +1978,7 @@
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
+      initialPinchAngle = twoTouchAngle(e);
       captureInitialTransforms();
     }
   }, { passive: false });
@@ -1993,6 +1999,9 @@
       );
       const zoom = dist / initialPinchDist;
       applyPinchZoom(zoom);
+      if (!rotationLocked) {
+        applyPinchRotation(twoTouchAngle(e) - initialPinchAngle);
+      }
       syncSliderControls();
       requestRender();
     }
@@ -2001,6 +2010,7 @@
   canvas.addEventListener('touchend', () => {
     isDragging = false;
     initialPinchDist = null;
+    initialPinchAngle = null;
     resolvePendingNarrow(dragMaxMovement > TAP_MOVEMENT_THRESHOLD);
     requestRender();
   });
@@ -2165,6 +2175,7 @@
 
   updateUI();
   syncSliderControls(); // starts Photo Border Color's controls correctly disabled (nothing selected yet)
+  syncRotationLockButton();
 </script>
 
 </body>

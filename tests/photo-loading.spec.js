@@ -22,9 +22,9 @@ test.describe('Loading photos', () => {
   });
 
   // Regression coverage for the "2. Style" merge: the per-photo panel
-  // (Photo Border Color, Scale/Rotation, Frame Shape/Behavior, Corner
-  // Radius) is now shown/hidden purely by selection state, not by whether
-  // photos are loaded at all.
+  // (Photo Border Color, Frame Shape/Behavior, Corner Radius) is now
+  // shown/hidden purely by selection state, not by whether photos are
+  // loaded at all.
   test('the per-photo panel appears once a photo is selected, and hides again once deselected', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
