@@ -454,7 +454,7 @@
   </div>
 
   <div class="color-row" data-target="border">
-    <label for="borderColor" id="borderColorLabel">Photo Border Color</label>
+    <label for="borderColor" id="borderColorLabel">Photo Border</label>
     <div class="color-row-controls">
       <input type="range" id="innerSpacing" min="0" max="100" value="16" aria-label="Photo Border width" title="Photo Border width">
       <span class="spacing-val" id="innerSpacingVal">16px</span>
@@ -542,7 +542,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609030000').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609030100').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
