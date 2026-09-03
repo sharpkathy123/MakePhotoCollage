@@ -167,7 +167,8 @@
        #radiusGroup already uses below. */
     .color-row label.disabled,
     .icon-btn:disabled,
-    .color-picker-box:disabled {
+    .color-picker-box:disabled,
+    .btn-secondary:disabled {
       opacity: 0.4;
       cursor: not-allowed;
     }
@@ -402,7 +403,14 @@
   </div>
 
   <!-- Which photo(s) you're about to edit -- lives right above the collage
-       itself, since it's about what's shown there. -->
+       itself, since it's about what's shown there. Reset Photo/Bring to
+       Front/Send to Back live here too now (not down inside the per-photo
+       panel below) so the whole "act on your selection" workflow is in one
+       reachable spot -- splitting it across the top and bottom of the page
+       caused real scroll-and-mis-tap friction in practice. Like Photo
+       Border Color, they stay visible but disabled (see syncSliderControls)
+       rather than appearing/disappearing, since they're meaningless without
+       a selection but still worth seeing as available actions. -->
   <div style="display:flex; justify-content:space-between; align-items:center; margin:0 0 8px; flex-wrap:wrap; gap:6px;">
     <span style="font-size:0.85rem; font-weight:700; color:var(--accent-color);" id="selectedPhotoLabel">No Photos Selected</span>
     <div class="button-group-inline">
@@ -410,6 +418,11 @@
       <button class="btn-secondary" type="button" onclick="selectAllPhotos()">Select All</button>
       <button class="btn-secondary" type="button" onclick="deselectAllPhotos()">Deselect All</button>
     </div>
+  </div>
+  <div class="button-group-inline" id="selectionActionButtons" style="margin:0 0 8px;">
+    <button class="btn-secondary" type="button" id="resetPhotoBtn" onclick="resetSelectedTransform()">Reset Photo</button>
+    <button class="btn-secondary" type="button" id="bringToFrontBtn" onclick="bringSelectedToFront()">Bring to Front</button>
+    <button class="btn-secondary" type="button" id="sendToBackBtn" onclick="sendSelectedToBack()">Send to Back</button>
   </div>
   <div class="touch-hint" id="multiSelectHint" style="display:none;">🖐 Multi-select on — tap photos to add/remove from selection</div>
 
@@ -461,12 +474,6 @@
   </div>
 
   <div class="photo-controls-card" id="photoControls" style="display:none;">
-    <div class="button-group-inline" style="margin-bottom:10px;">
-      <button class="btn-secondary" type="button" onclick="resetSelectedTransform()">Reset Photo</button>
-      <button class="btn-secondary" type="button" onclick="bringSelectedToFront()">Bring to Front</button>
-      <button class="btn-secondary" type="button" onclick="sendSelectedToBack()">Send to Back</button>
-    </div>
-
     <div class="row">
       <div class="control">
         <label>Scale: <span id="scaleVal">1.0</span></label>
@@ -535,7 +542,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609022200').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609030000').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -591,6 +598,9 @@
   const saveBtn = document.getElementById('saveBtn');
   const touchHint = document.getElementById('touchHint');
   const photoControls = document.getElementById('photoControls');
+  const resetPhotoBtn = document.getElementById('resetPhotoBtn');
+  const bringToFrontBtn = document.getElementById('bringToFrontBtn');
+  const sendToBackBtn = document.getElementById('sendToBackBtn');
   const selectedPhotoLabel = document.getElementById('selectedPhotoLabel');
   const modScale = document.getElementById('modScale');
   const modRotate = document.getElementById('modRotate');
@@ -1275,10 +1285,9 @@
   }
 
   function syncSliderControls() {
-    // The per-photo panel (Reset/Front/Back, Scale/Rotation, Frame
-    // Shape/Behavior, Corner Radius) only means something once 1+ photos
-    // are selected -- Select All or tapping a photo reveals it, Deselect
-    // All hides it again.
+    // The per-photo panel (Scale/Rotation, Frame Shape/Behavior, Corner
+    // Radius) only means something once 1+ photos are selected -- Select
+    // All or tapping a photo reveals it, Deselect All hides it again.
     const hasSelection = !!selectedIndices.length;
     photoControls.style.display = hasSelection ? 'block' : 'none';
 
@@ -1293,6 +1302,15 @@
     if (!hasSelection && samplingTarget === 'border') {
       disarmEyedropper();
     }
+
+    // Reset Photo/Bring to Front/Send to Back live in the always-visible
+    // toolbar above the canvas (not the per-photo panel), same
+    // disabled-but-visible treatment as Photo Border Color -- they're
+    // meaningless without a selection but stay put as visible actions,
+    // so nothing shifts position right as someone reaches for one.
+    resetPhotoBtn.disabled = !hasSelection;
+    bringToFrontBtn.disabled = !hasSelection;
+    sendToBackBtn.disabled = !hasSelection;
 
     if (!selectedIndices.length) {
       selectedPhotoLabel.textContent = "No Photos Selected";

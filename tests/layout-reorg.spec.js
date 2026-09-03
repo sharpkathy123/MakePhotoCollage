@@ -59,16 +59,16 @@ test.describe('Page layout & reachability', () => {
     expect(lastControlBox.y + lastControlBox.height).toBeLessThanOrEqual(saveBarBox.y);
   });
 
-  test('the per-photo toolbar buttons wrap onto multiple rows instead of overflowing on a narrow viewport', async ({ page }) => {
+  test('the selection action buttons wrap onto multiple rows instead of overflowing on a narrow viewport', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
-    await page.click('button:text("Select All")'); // reveals the Reset/Front/Back row
+    await page.click('button:text("Select All")'); // enables the Reset/Front/Back row
 
-    const wrapStyle = await page.evaluate(() => getComputedStyle(document.querySelector('.button-group-inline')).flexWrap);
+    const wrapStyle = await page.evaluate(() => getComputedStyle(document.getElementById('selectionActionButtons')).flexWrap);
     expect(wrapStyle).toBe('wrap');
 
-    const boxes = await page.locator('#photoControls .button-group-inline .btn-secondary').all();
+    const boxes = await page.locator('#selectionActionButtons .btn-secondary').all();
     const tops = [];
     for (const box of boxes) {
       const b = await box.boundingBox();
@@ -77,6 +77,40 @@ test.describe('Page layout & reachability', () => {
     // At least two distinct row positions -- proves the buttons actually
     // wrapped rather than merely being allowed to.
     expect(new Set(tops).size).toBeGreaterThan(1);
+  });
+
+  // Regression coverage: Reset Photo/Bring to Front/Send to Back used to
+  // live inside the conditionally-shown #photoControls panel, far below the
+  // canvas -- splitting the "act on your selection" workflow across the top
+  // and bottom of the page caused real scroll-and-mis-tap friction (reaching
+  // for Reset Photo, scrolling past the toolbar above the canvas, and
+  // accidentally tapping something that cleared the selection along the
+  // way). They now live in the always-visible toolbar above the canvas,
+  // right alongside Select All/Deselect All, disabled-but-visible (like
+  // Photo Border Color) rather than appearing/disappearing.
+  test('Reset Photo/Bring to Front/Send to Back sit in the always-visible toolbar above the canvas, not inside the per-photo panel', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+
+    const order = await page.evaluate(() => {
+      const all = Array.from(document.querySelectorAll('#selectedPhotoLabel, #selectionActionButtons, #canvas-container'));
+      return all.map((el) => el.id);
+    });
+    expect(order).toEqual(['selectedPhotoLabel', 'selectionActionButtons', 'canvas-container']);
+
+    const insidePhotoControls = await page.evaluate(() =>
+      document.getElementById('photoControls').contains(document.getElementById('resetPhotoBtn'))
+    );
+    expect(insidePhotoControls).toBe(false);
+
+    await expect(page.locator('#resetPhotoBtn')).toBeDisabled();
+    await expect(page.locator('#bringToFrontBtn')).toBeDisabled();
+    await expect(page.locator('#sendToBackBtn')).toBeDisabled();
+
+    await page.click('button:text("Select All")');
+    await expect(page.locator('#resetPhotoBtn')).toBeEnabled();
+    await expect(page.locator('#bringToFrontBtn')).toBeEnabled();
+    await expect(page.locator('#sendToBackBtn')).toBeEnabled();
   });
 
   // Regression coverage: the width sliders used to sit in their own row
