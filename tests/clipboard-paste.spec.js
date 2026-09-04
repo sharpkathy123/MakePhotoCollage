@@ -24,7 +24,12 @@ test.describe('Paste from clipboard', () => {
     expect(await page.evaluate(() => rawImages.length)).toBe(2);
   });
 
-  test('pasting with no image on the clipboard alerts and loads nothing', async ({ page }) => {
+  // The alert names whatever types WERE found (rather than a flat "no
+  // photo") when the clipboard has something on it that isn't a photo --
+  // this is what will pin down what a real device's clipboard.read()
+  // actually hands back for a case that turns out not to work, since it
+  // can't be reproduced in this sandbox.
+  test('pasting non-image clipboard content alerts with the types found and loads nothing', async ({ page }) => {
     await page.goto('/index.html');
     await page.evaluate(() => {
       // navigator.clipboard is a getter-only accessor with no setter --
@@ -42,7 +47,27 @@ test.describe('Paste from clipboard', () => {
     await page.click('#pasteBtn');
     await page.waitForTimeout(100);
 
-    expect(alertMessage).toContain('No photo found');
+    expect(alertMessage).toContain('not a photo');
+    expect(alertMessage).toContain('text/plain');
+    expect(await page.evaluate(() => rawImages.length)).toBe(0);
+  });
+
+  test('pasting an empty clipboard alerts with the plain "no photo found" message', async ({ page }) => {
+    await page.goto('/index.html');
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { read: async () => [] },
+        configurable: true,
+      });
+    });
+
+    let alertMessage = null;
+    page.on('dialog', async (dialog) => { alertMessage = dialog.message(); await dialog.accept(); });
+
+    await page.click('#pasteBtn');
+    await page.waitForTimeout(100);
+
+    expect(alertMessage).toBe('No photo found on the clipboard. Copy a photo first, then tap Paste.');
     expect(await page.evaluate(() => rawImages.length)).toBe(0);
   });
 

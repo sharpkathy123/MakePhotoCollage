@@ -543,7 +543,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609042000').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609042100').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -998,8 +998,10 @@
     }
 
     const files = [];
+    const seenTypes = [];
     for (const item of clipboardItems) {
-      const imageType = item.types.find(t => t.startsWith('image/'));
+      seenTypes.push(...item.types);
+      const imageType = item.types.find(t => t.toLowerCase().startsWith('image/'));
       if (!imageType) continue;
       const blob = await item.getType(imageType);
       const ext = imageType.split('/')[1] || 'png';
@@ -1007,7 +1009,14 @@
     }
 
     if (!files.length) {
-      alert('No photo found on the clipboard. Copy a photo first, then tap Paste.');
+      // Temporary diagnostic: iOS Safari's clipboard.read() can hand back
+      // content the app doesn't yet know how to read (e.g. an image copied
+      // as text/html rather than raw image bytes) -- naming what was
+      // actually found, instead of just "no photo," is what will pin down
+      // which case this is on a real device.
+      alert(seenTypes.length
+        ? `Found something on the clipboard, but not a photo (types: ${seenTypes.join(', ')}). Copy a photo first, then tap Paste.`
+        : 'No photo found on the clipboard. Copy a photo first, then tap Paste.');
       return;
     }
 
