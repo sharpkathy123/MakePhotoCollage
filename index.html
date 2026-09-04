@@ -398,6 +398,14 @@
       <button type="button" class="info-toggle-btn" id="gphotosImportBtn" onclick="importFromGooglePhotos()" aria-label="Import from Google Photos" title="Import from Google Photos">☁️</button>
       <button type="button" class="info-toggle-btn" id="gphotosInfoBtn" onclick="toggleGphotosInfo()" aria-expanded="false" aria-label="About Google Photos import" title="About Google Photos import">ⓘ</button>
     </div>
+    <!-- Tapping Paste focuses this and waits for a real OS paste gesture
+         into it (see pastePhotos()) rather than reading the clipboard
+         directly -- navigator.clipboard.read() turned out to silently
+         resolve to nothing for images on iOS Safari, with no permission
+         prompt and no error to catch. -->
+    <input type="text" id="pasteZone" hidden autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+           placeholder="Tap here, then tap Paste"
+           style="width:100%; margin-top:8px; padding:10px; border:2px dashed var(--accent-color); border-radius:8px; text-align:center; font-size:0.85rem; color:var(--accent-color); background:transparent; box-sizing:border-box;">
     <div id="gphotosInfo" hidden style="font-size:0.7rem; color:#8e8e93; margin-top:4px;">Google Photos import only works for accounts approved in the README's setup steps — not submitted for Google's public review.</div>
     <button class="btn-secondary" type="button" id="gphotosOpenPickerBtn" onclick="openGooglePhotosPickerTab()" style="display:none; width:100%; margin-top:6px;">🔗 Tap to Open Google Photos</button>
     <button class="btn-secondary" type="button" id="startNewBtn" onclick="startNewCollage()" style="display:none; width:100%; margin-top:6px;">🗑️ Start New Collage</button>
@@ -543,7 +551,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609042100').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609042200').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -575,6 +583,7 @@
 
   // DOM Elements
   const imgInput = document.getElementById('imgInput');
+  const pasteZone = document.getElementById('pasteZone');
   const gphotosImportBtn = document.getElementById('gphotosImportBtn');
   const gphotosOpenPickerBtn = document.getElementById('gphotosOpenPickerBtn');
   const startNewBtn = document.getElementById('startNewBtn');
@@ -977,51 +986,39 @@
     await loadImageFiles(files);
   });
 
-  // Pulls any images off the system clipboard (e.g. copied from Photos, a
-  // screenshot, or another app) and loads them the same way a file pick
-  // does. Must be called directly from a user gesture (the button's own
-  // onclick, with no other await ahead of the clipboard.read() call) --
-  // browsers require that for clipboard access.
-  async function pastePhotos() {
-    if (!navigator.clipboard || !navigator.clipboard.read) {
-      alert("This browser doesn't support pasting from the clipboard. Try Choose Files instead.");
-      return;
-    }
-
-    let clipboardItems;
-    try {
-      clipboardItems = await navigator.clipboard.read();
-    } catch (err) {
-      console.error('Clipboard read failed:', err);
-      alert('Could not read the clipboard. Copy a photo first, then tap Paste again.');
-      return;
-    }
-
-    const files = [];
-    const seenTypes = [];
-    for (const item of clipboardItems) {
-      seenTypes.push(...item.types);
-      const imageType = item.types.find(t => t.toLowerCase().startsWith('image/'));
-      if (!imageType) continue;
-      const blob = await item.getType(imageType);
-      const ext = imageType.split('/')[1] || 'png';
-      files.push(new File([blob], `pasted-${Date.now()}-${files.length}.${ext}`, { type: imageType }));
-    }
-
-    if (!files.length) {
-      // Temporary diagnostic: iOS Safari's clipboard.read() can hand back
-      // content the app doesn't yet know how to read (e.g. an image copied
-      // as text/html rather than raw image bytes) -- naming what was
-      // actually found, instead of just "no photo," is what will pin down
-      // which case this is on a real device.
-      alert(seenTypes.length
-        ? `Found something on the clipboard, but not a photo (types: ${seenTypes.join(', ')}). Copy a photo first, then tap Paste.`
-        : 'No photo found on the clipboard. Copy a photo first, then tap Paste.');
-      return;
-    }
-
-    await loadImageFiles(files);
+  // Loads any image pasted into pasteZone the same way a file pick does.
+  // navigator.clipboard.read() (the Async Clipboard API) turned out to be
+  // unreliable for images on iOS Safari in practice -- confirmed live, it
+  // resolved with no items/types at all for a photo copied straight from
+  // the Photos app, with no permission prompt and no error to catch. The
+  // classic `paste` event, fired by the OS's own Paste action on a
+  // focused, editable field, is older, far more broadly supported, and
+  // isn't gated by that same permission model -- so tapping Paste focuses
+  // a small text input and waits for a real paste gesture into it,
+  // instead of trying to read the clipboard directly.
+  function pastePhotos() {
+    pasteZone.value = '';
+    pasteZone.hidden = false;
+    pasteZone.focus();
   }
+
+  pasteZone.addEventListener('paste', async (e) => {
+    e.preventDefault(); // don't let the pasted image insert itself as content
+    const items = Array.from(e.clipboardData ? e.clipboardData.items : []);
+    const fileItem = items.find(item => item.kind === 'file' && item.type.startsWith('image/'));
+    const file = fileItem && fileItem.getAsFile();
+    pasteZone.blur(); // triggers the blur listener below, hiding the zone
+
+    if (!file) {
+      alert("That paste didn't include a photo. Copy a photo first, then try again.");
+      return;
+    }
+    await loadImageFiles([file]);
+  });
+
+  pasteZone.addEventListener('blur', () => {
+    pasteZone.hidden = true;
+  });
 
   // --- Google Photos Import (via Google's official Photos Picker API) ---
   // Photos are fetched directly from Google by the browser using the user's

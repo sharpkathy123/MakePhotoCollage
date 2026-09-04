@@ -151,27 +151,36 @@ async function pinchGesture(page, centerApp, { startDist, endDist, startAngle = 
   await twoFingerGesture(page, [pairAt(startD, startAngle), pairAt(endD, endAngle)]);
 }
 
-// Stubs navigator.clipboard.read() to resolve with a single fake
-// ClipboardItem exposing the given fixture image, so the Paste button's
-// clipboard.read() call has something real to decode without needing an
-// actual system clipboard (unavailable/unreliable in headless CI). Only
-// `types` and `getType()` are used by the app, so a plain object stands in
-// for a real ClipboardItem. navigator.clipboard is a getter-only accessor
-// on Navigator.prototype with no setter, so a plain `navigator.clipboard =
-// ...` assignment silently no-ops (still reading through to the real
-// Clipboard API) -- defineProperty is required to actually replace it.
-async function mockClipboardImage(page, fixturePath, mimeType = 'image/png') {
+// Dispatches a real `paste` event (with an actual DataTransfer carrying the
+// given fixture image as a File) at #pasteZone -- not a mock of the app's
+// handling, the genuine paste listener runs exactly as it would for a real
+// OS paste gesture. navigator.clipboard.read() (the Async Clipboard API)
+// turned out to be unreliable for images on iOS Safari in real use, so the
+// app reads pastes the classic way instead: focus a field, wait for the
+// browser's own `paste` event, read event.clipboardData.
+async function pastePhotoInto(page, fixturePath, mimeType = 'image/png') {
   const base64 = fs.readFileSync(fixturePath).toString('base64');
   await page.evaluate(({ base64, mimeType }) => {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: mimeType });
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { read: async () => [{ types: [mimeType], getType: async () => blob }] },
-      configurable: true,
-    });
+    const file = new File([bytes], 'pasted.png', { type: mimeType });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const zone = document.getElementById('pasteZone');
+    zone.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
   }, { base64, mimeType });
+}
+
+// Same, but with plain text on the clipboard instead of an image -- covers
+// the "that paste didn't include a photo" branch.
+async function pasteTextInto(page, text = 'hello') {
+  await page.evaluate((text) => {
+    const dt = new DataTransfer();
+    dt.items.add(text, 'text/plain');
+    const zone = document.getElementById('pasteZone');
+    zone.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, text);
 }
 
 module.exports = {
@@ -186,5 +195,6 @@ module.exports = {
   getActiveOptionValue,
   twoFingerGesture,
   pinchGesture,
-  mockClipboardImage,
+  pastePhotoInto,
+  pasteTextInto,
 };

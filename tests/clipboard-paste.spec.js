@@ -1,107 +1,70 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos, mockClipboardImage } = require('./helpers');
+const { FIXTURES, loadPhotos, pastePhotoInto, pasteTextInto } = require('./helpers');
 
+// navigator.clipboard.read() (the Async Clipboard API) turned out to be
+// unreliable for images on iOS Safari in real use -- confirmed live, it
+// resolved with no items/types at all for a photo copied straight from the
+// Photos app, with no permission prompt and no error to catch. Paste is
+// implemented on the classic `paste` event instead (fired by the OS's own
+// Paste action on a focused field), which isn't gated by that same
+// permission model. Tapping #pasteBtn reveals and focuses #pasteZone;
+// these tests dispatch a real `paste` event at it, exactly like a genuine
+// OS paste gesture would.
 test.describe('Paste from clipboard', () => {
-  test('tapping Paste loads a photo from the clipboard the same way Choose Files does', async ({ page }) => {
+  test('tapping Paste reveals and focuses the paste zone', async ({ page }) => {
     await page.goto('/index.html');
-    await mockClipboardImage(page, FIXTURES.redLandscape);
 
+    await expect(page.locator('#pasteZone')).toBeHidden();
     await page.click('#pasteBtn');
+    await expect(page.locator('#pasteZone')).toBeVisible();
+    await expect(page.locator('#pasteZone')).toBeFocused();
+  });
+
+  test('pasting an image into the paste zone loads it the same way Choose Files does, and hides the zone again', async ({ page }) => {
+    await page.goto('/index.html');
+    await page.click('#pasteBtn');
+
+    await pastePhotoInto(page, FIXTURES.redLandscape);
     await page.waitForFunction(() => typeof rawImages !== 'undefined' && rawImages.length === 1);
 
     expect(await page.evaluate(() => rawImages.length)).toBe(1);
     await expect(page.locator('#saveBtn')).toBeEnabled();
+    await expect(page.locator('#pasteZone')).toBeHidden();
   });
 
   test('pasting appends to an already-loaded collage instead of replacing it', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.greenSquare]);
-    await mockClipboardImage(page, FIXTURES.redLandscape);
-
     await page.click('#pasteBtn');
+
+    await pastePhotoInto(page, FIXTURES.redLandscape);
     await page.waitForFunction(() => rawImages.length === 2);
 
     expect(await page.evaluate(() => rawImages.length)).toBe(2);
   });
 
-  // The alert names whatever types WERE found (rather than a flat "no
-  // photo") when the clipboard has something on it that isn't a photo --
-  // this is what will pin down what a real device's clipboard.read()
-  // actually hands back for a case that turns out not to work, since it
-  // can't be reproduced in this sandbox.
-  test('pasting non-image clipboard content alerts with the types found and loads nothing', async ({ page }) => {
+  test('pasting non-image content alerts and loads nothing', async ({ page }) => {
     await page.goto('/index.html');
-    await page.evaluate(() => {
-      // navigator.clipboard is a getter-only accessor with no setter --
-      // defineProperty is required to actually replace it (see
-      // mockClipboardImage in helpers.js).
-      Object.defineProperty(navigator, 'clipboard', {
-        value: { read: async () => [{ types: ['text/plain'], getType: async () => new Blob(['hi'], { type: 'text/plain' }) }] },
-        configurable: true,
-      });
-    });
+    await page.click('#pasteBtn');
 
     let alertMessage = null;
     page.on('dialog', async (dialog) => { alertMessage = dialog.message(); await dialog.accept(); });
 
-    await page.click('#pasteBtn');
+    await pasteTextInto(page, 'hello');
     await page.waitForTimeout(100);
 
-    expect(alertMessage).toContain('not a photo');
-    expect(alertMessage).toContain('text/plain');
+    expect(alertMessage).toContain("didn't include a photo");
     expect(await page.evaluate(() => rawImages.length)).toBe(0);
+    await expect(page.locator('#pasteZone')).toBeHidden();
   });
 
-  test('pasting an empty clipboard alerts with the plain "no photo found" message', async ({ page }) => {
+  test('tapping away without pasting dismisses the paste zone', async ({ page }) => {
     await page.goto('/index.html');
-    await page.evaluate(() => {
-      Object.defineProperty(navigator, 'clipboard', {
-        value: { read: async () => [] },
-        configurable: true,
-      });
-    });
-
-    let alertMessage = null;
-    page.on('dialog', async (dialog) => { alertMessage = dialog.message(); await dialog.accept(); });
-
     await page.click('#pasteBtn');
-    await page.waitForTimeout(100);
+    await expect(page.locator('#pasteZone')).toBeVisible();
 
-    expect(alertMessage).toBe('No photo found on the clipboard. Copy a photo first, then tap Paste.');
-    expect(await page.evaluate(() => rawImages.length)).toBe(0);
-  });
-
-  test('a clipboard read failure (e.g. permission denied) alerts instead of throwing', async ({ page }) => {
-    await page.goto('/index.html');
-    await page.evaluate(() => {
-      Object.defineProperty(navigator, 'clipboard', {
-        value: { read: async () => { throw new Error('NotAllowedError'); } },
-        configurable: true,
-      });
-    });
-
-    let alertMessage = null;
-    page.on('dialog', async (dialog) => { alertMessage = dialog.message(); await dialog.accept(); });
-
-    await page.click('#pasteBtn');
-    await page.waitForTimeout(100);
-
-    expect(alertMessage).toContain('Could not read the clipboard');
-  });
-
-  test('an unsupported clipboard API alerts rather than erroring silently', async ({ page }) => {
-    await page.goto('/index.html');
-    await page.evaluate(() => {
-      Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
-    });
-
-    let alertMessage = null;
-    page.on('dialog', async (dialog) => { alertMessage = dialog.message(); await dialog.accept(); });
-
-    await page.click('#pasteBtn');
-    await page.waitForTimeout(100);
-
-    expect(alertMessage).toContain("doesn't support pasting");
+    await page.click('#imgInput');
+    await expect(page.locator('#pasteZone')).toBeHidden();
   });
 
   // Regression coverage: a labeled button here (rather than the same
