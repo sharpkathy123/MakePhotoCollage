@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 
 const FIXTURES = {
   redLandscape: path.join(__dirname, 'fixtures', 'red-landscape.png'), // 300x180, (220,60,60)
@@ -150,6 +151,29 @@ async function pinchGesture(page, centerApp, { startDist, endDist, startAngle = 
   await twoFingerGesture(page, [pairAt(startD, startAngle), pairAt(endD, endAngle)]);
 }
 
+// Stubs navigator.clipboard.read() to resolve with a single fake
+// ClipboardItem exposing the given fixture image, so the Paste button's
+// clipboard.read() call has something real to decode without needing an
+// actual system clipboard (unavailable/unreliable in headless CI). Only
+// `types` and `getType()` are used by the app, so a plain object stands in
+// for a real ClipboardItem. navigator.clipboard is a getter-only accessor
+// on Navigator.prototype with no setter, so a plain `navigator.clipboard =
+// ...` assignment silently no-ops (still reading through to the real
+// Clipboard API) -- defineProperty is required to actually replace it.
+async function mockClipboardImage(page, fixturePath, mimeType = 'image/png') {
+  const base64 = fs.readFileSync(fixturePath).toString('base64');
+  await page.evaluate(({ base64, mimeType }) => {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: mimeType });
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { read: async () => [{ types: [mimeType], getType: async () => blob }] },
+      configurable: true,
+    });
+  }, { base64, mimeType });
+}
+
 module.exports = {
   FIXTURES,
   loadPhotos,
@@ -162,4 +186,5 @@ module.exports = {
   getActiveOptionValue,
   twoFingerGesture,
   pinchGesture,
+  mockClipboardImage,
 };

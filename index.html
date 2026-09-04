@@ -394,6 +394,7 @@
     <label for="imgInput">1. Select Photos</label>
     <div class="photo-source-row">
       <input type="file" id="imgInput" accept="image/*" multiple>
+      <button type="button" class="info-toggle-btn" id="pasteBtn" onclick="pastePhotos()" aria-label="Paste photos from clipboard" title="Paste photos from clipboard">📋</button>
       <button type="button" class="info-toggle-btn" id="gphotosImportBtn" onclick="importFromGooglePhotos()" aria-label="Import from Google Photos" title="Import from Google Photos">☁️</button>
       <button type="button" class="info-toggle-btn" id="gphotosInfoBtn" onclick="toggleGphotosInfo()" aria-expanded="false" aria-label="About Google Photos import" title="About Google Photos import">ⓘ</button>
     </div>
@@ -542,7 +543,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609030500').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609042000').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -936,16 +937,15 @@
     syncSliderControls(); // also hides the per-photo panel, now that nothing is selected
   }
 
-  // File Upload Handler
-  imgInput.addEventListener('change', async (e) => {
-    const files = Array.from(e.target.files);
+  // Shared by the file input and the clipboard paste button: decodes each
+  // File into an Image and appends whichever ones succeed. One corrupt/
+  // unsupported file used to discard the entire batch silently (Promise.all
+  // rejects as a whole) -- allSettled instead loads whichever files
+  // actually decode, and alert()s about the rest, matching how the Google
+  // Photos import path already surfaces its own failures.
+  async function loadImageFiles(files) {
     if (!files.length) return;
 
-    // One corrupt/unsupported file used to discard the entire batch
-    // silently (Promise.all rejects as a whole, caught and only
-    // console.error'd) -- allSettled instead loads whichever files
-    // actually decode, and alert()s about the rest, matching how the
-    // Google Photos import path already surfaces its own failures.
     const results = await Promise.allSettled(files.map(file => {
       return new Promise((resolve, reject) => {
         const img = new Image();
@@ -969,7 +969,50 @@
           : `${count} of ${files.length} photos could not be loaded and were skipped. The rest were added.`
       );
     }
+  }
+
+  // File Upload Handler
+  imgInput.addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files);
+    await loadImageFiles(files);
   });
+
+  // Pulls any images off the system clipboard (e.g. copied from Photos, a
+  // screenshot, or another app) and loads them the same way a file pick
+  // does. Must be called directly from a user gesture (the button's own
+  // onclick, with no other await ahead of the clipboard.read() call) --
+  // browsers require that for clipboard access.
+  async function pastePhotos() {
+    if (!navigator.clipboard || !navigator.clipboard.read) {
+      alert("This browser doesn't support pasting from the clipboard. Try Choose Files instead.");
+      return;
+    }
+
+    let clipboardItems;
+    try {
+      clipboardItems = await navigator.clipboard.read();
+    } catch (err) {
+      console.error('Clipboard read failed:', err);
+      alert('Could not read the clipboard. Copy a photo first, then tap Paste again.');
+      return;
+    }
+
+    const files = [];
+    for (const item of clipboardItems) {
+      const imageType = item.types.find(t => t.startsWith('image/'));
+      if (!imageType) continue;
+      const blob = await item.getType(imageType);
+      const ext = imageType.split('/')[1] || 'png';
+      files.push(new File([blob], `pasted-${Date.now()}-${files.length}.${ext}`, { type: imageType }));
+    }
+
+    if (!files.length) {
+      alert('No photo found on the clipboard. Copy a photo first, then tap Paste.');
+      return;
+    }
+
+    await loadImageFiles(files);
+  }
 
   // --- Google Photos Import (via Google's official Photos Picker API) ---
   // Photos are fetched directly from Google by the browser using the user's
