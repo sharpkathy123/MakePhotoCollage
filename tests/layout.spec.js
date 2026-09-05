@@ -60,6 +60,27 @@ test.describe('Layout & cell sizing', () => {
     expect(cols).toBe(4);
   });
 
+  // Regression test: computeOptimalColumns used to weigh "squareness" over
+  // avoiding blank cells, so 10 photos picked 4 cols x 3 rows (2 holes)
+  // instead of the hole-free 5 cols x 2 rows -- even though a perfect
+  // rectangle was available. A hole-free (or fewer-holed) layout should now
+  // win over a merely squarer one with blank cells.
+  test('automatic column count prefers a hole-free rectangle over a squarer layout with blank cells', async ({ page }) => {
+    await page.goto('/index.html');
+
+    const cols10 = await page.evaluate(() => computeOptimalColumns(10));
+    expect(cols10).toBe(5); // 5x2, 0 holes -- not 4x3 (2 holes)
+
+    // Sanity checks that this didn't just make every count maximally wide:
+    // a perfect square stays a perfect square, and a prime count doesn't
+    // degenerate into a single thin strip just to avoid holes.
+    const cols9 = await page.evaluate(() => computeOptimalColumns(9));
+    expect(cols9).toBe(3); // 3x3, 0 holes
+
+    const cols13 = await page.evaluate(() => computeOptimalColumns(13));
+    expect(cols13).toBeGreaterThan(1); // not a degenerate 1x13 strip
+  });
+
   // Regression test: an Attached-mode photo's x/y is a raw pixel nudge
   // relative to its own cell. Grid, Horizontal Strip, and Vertical Feed
   // place cells completely differently, so a nudge that looked right in

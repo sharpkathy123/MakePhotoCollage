@@ -23,7 +23,12 @@ test.describe('Surprise Me', () => {
     await expect(page.locator('#surpriseMeBtn')).toBeHidden();
   });
 
-  test('a photo with a centered blob on a plain background is treated as center-focused (circle), a photo with detail at the edges is not (Original Aspect)', async ({ page }) => {
+  // pickShapeFor picks randomly among whichever shapes are safe for a
+  // photo's content profile (see shapeCandidatesFor) -- so a center-focused
+  // squarish photo can come back as any of Circle/Square/Ellipse/Rounded,
+  // never a single fixed shape, but an edge-heavy photo must always stay
+  // Original Aspect (its candidate set has only one member).
+  test('a photo with a centered blob on a plain background is treated as center-focused (any of Circle/Square/Ellipse/Rounded), a photo with detail at the edges is not (always Original Aspect)', async ({ page }) => {
     await page.goto('/index.html');
 
     const result = await page.evaluate(async () => {
@@ -65,17 +70,47 @@ test.describe('Surprise Me', () => {
 
       const centerAnalysis = analyzePhoto(centerImg);
       const edgeAnalysis = analyzePhoto(edgeImg);
+      // 50 draws each -- with true randomness among the center-focused
+      // photo's 4 candidates, the odds of never seeing more than one
+      // distinct shape are astronomically small (this isn't asserted on,
+      // but it's why the loop count is what it is); edgeShapes must all
+      // come back 'none' every single time, no randomness involved there.
+      const centerShapes = new Set();
+      const edgeShapes = new Set();
+      for (let i = 0; i < 50; i++) {
+        centerShapes.add(pickShapeFor(centerAnalysis));
+        edgeShapes.add(pickShapeFor(edgeAnalysis));
+      }
       return {
         centerFocusScore: centerAnalysis.focusScore,
         edgeFocusScore: edgeAnalysis.focusScore,
-        centerShape: pickShapeFor(centerAnalysis),
-        edgeShape: pickShapeFor(edgeAnalysis),
+        centerCandidates: shapeCandidatesFor(centerAnalysis),
+        edgeCandidates: shapeCandidatesFor(edgeAnalysis),
+        centerShapesSeen: Array.from(centerShapes),
+        edgeShapesSeen: Array.from(edgeShapes),
       };
     });
 
     expect(result.centerFocusScore).toBeGreaterThan(result.edgeFocusScore);
-    expect(result.centerShape).toBe('circle');
-    expect(result.edgeShape).toBe('none');
+    expect(result.centerCandidates.sort()).toEqual(['circle', 'ellipse', 'rounded', 'square']);
+    result.centerShapesSeen.forEach((shape) => expect(result.centerCandidates).toContain(shape));
+    expect(result.edgeCandidates).toEqual(['none']);
+    expect(result.edgeShapesSeen).toEqual(['none']);
+  });
+
+  test('across many photos, Surprise Me actually uses more than one shape (not the same shape every time)', async ({ page }) => {
+    await page.goto('/index.html');
+    // 8 identical center-focused squarish photos -- same content profile,
+    // so any variety in the outcome can only come from real randomization
+    // among that profile's candidate shapes, not from differing content.
+    await loadSyntheticPhotos(page, Array.from({ length: 8 }, () => ({
+      type: 'centerFocus', size: 200, bgColor: '#eeeeee', fgColor: '#cc2222',
+    })));
+
+    await page.click('#surpriseMeBtn');
+
+    const shapes = await page.evaluate(() => photoMasks.map((m) => m.mode));
+    expect(new Set(shapes).size).toBeGreaterThan(1);
   });
 
   test('applying Surprise Me sets a per-photo sampled border color and one shared border width, and picks a layout', async ({ page }) => {
@@ -141,5 +176,51 @@ test.describe('Surprise Me', () => {
     const hexes = await page.evaluate(() => photoMasks.map((m) => m.borderColor.toLowerCase()));
     const sameAsFirst = hexes.map((h) => h === hexes[0]);
     expect(sameAsFirst).toEqual([true, true, false, false]);
+  });
+
+  // An invisible border (one that blends straight into Canvas Background)
+  // defeats the point of picking one at all.
+  test.describe('border color never collides with Canvas Background', () => {
+    function rgbDistance(hexA, hexB) {
+      const toRgb = (hex) => {
+        const n = parseInt(hex.slice(1), 16);
+        return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+      };
+      const a = toRgb(hexA), b = toRgb(hexB);
+      return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
+    }
+
+    test('a photo whose sampled color matches Canvas Background exactly gets a visibly different border instead', async ({ page }) => {
+      await page.goto('/index.html');
+      await loadSyntheticPhotos(page, [{ type: 'solid', width: 300, height: 300, color: '#dd2222' }]);
+      await page.evaluate(() => { canvasColorVal = '#dd2222'; });
+
+      await page.click('#surpriseMeBtn');
+
+      const borderColor = await page.evaluate(() => photoMasks[0].borderColor);
+      expect(rgbDistance(borderColor, '#dd2222')).toBeGreaterThanOrEqual(60);
+    });
+
+    test('a photo whose sampled color does not clash with Canvas Background is left as its own sampled color', async ({ page }) => {
+      await page.goto('/index.html');
+      await loadSyntheticPhotos(page, [{ type: 'solid', width: 300, height: 300, color: '#2222dd' }]);
+      await page.evaluate(() => { canvasColorVal = '#dd2222'; }); // red bg, blue photo -- no clash
+
+      await page.click('#surpriseMeBtn');
+
+      const borderColor = await page.evaluate(() => photoMasks[0].borderColor);
+      expect(rgbDistance(borderColor, '#2222dd')).toBeLessThan(10); // unchanged (small tolerance for canvas resampling)
+    });
+
+    test('a transparent Canvas Background never triggers the anti-collision adjustment', async ({ page }) => {
+      await page.goto('/index.html');
+      await loadSyntheticPhotos(page, [{ type: 'solid', width: 300, height: 300, color: '#dd2222' }]);
+      await page.evaluate(() => { canvasColorVal = 'none'; });
+
+      await page.click('#surpriseMeBtn');
+
+      const borderColor = await page.evaluate(() => photoMasks[0].borderColor);
+      expect(rgbDistance(borderColor, '#dd2222')).toBeLessThan(10);
+    });
   });
 });

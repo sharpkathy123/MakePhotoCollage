@@ -559,7 +559,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609050300').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609051200').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -800,7 +800,11 @@
 
       const orientationPenalty = isWiderOrEqual ? 0 : 50;
       const squarenessDiff = Math.abs((cols / rows) - 1.0);
-      const holePenalty = holes * 10;
+      // Weighted above squarenessDiff's typical contribution so a hole-free
+      // (or fewer-holed) layout beats a merely squarer one with blank cells
+      // -- e.g. 10 photos lands on 5x2 (no holes) rather than 4x3 (2 holes),
+      // even though 4x3 is squarer.
+      const holePenalty = holes * 20;
 
       const penalty = orientationPenalty + (squarenessDiff * 20) + holePenalty;
 
@@ -2300,20 +2304,76 @@
       }
     }
     clusters.sort((a, b) => b.count - a.count);
+    const toHex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+    // Most-to-least prevalent -- pickBorderColorAvoiding falls back through
+    // these when the top one turns out to clash with Canvas Background.
+    const colorOptions = clusters.slice(0, 5).map(toHex);
     const top = clusters[0];
-    const hex = '#' + [top.r, top.g, top.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
 
     const aspect = (img.naturalWidth || 1) / (img.naturalHeight || 1);
     const aspectBucket = aspect > 1.15 ? 'landscape' : aspect < 0.87 ? 'portrait' : 'square';
 
-    return { aspect, aspectBucket, focusScore, hex, colorCategory: colorCategoryOf(rgbToHsl(top.r, top.g, top.b)) };
+    return { aspect, aspectBucket, focusScore, hex: colorOptions[0], colorOptions, colorCategory: colorCategoryOf(rgbToHsl(top.r, top.g, top.b)) };
+  }
+
+  // Whichever shapes are safe to crop a photo with this content profile to
+  // -- picking randomly among them (see pickShapeFor) is what brings all
+  // five Frame Shape options into play instead of one fixed shape per
+  // profile, without ever crossing into a shape that would risk cropping
+  // off something that matters.
+  function shapeCandidatesFor(analysis) {
+    if (analysis.focusScore < 0.8) return ['none']; // edge-heavy content -- never crop
+    const isSquareish = analysis.aspect > 0.85 && analysis.aspect < 1.15;
+    if (analysis.focusScore > 1.4) {
+      // Center-focused: confident enough to crop tightly. Circle/Square
+      // only suit a roughly square photo -- forcing either onto a
+      // strongly elongated one would crop most of it away.
+      return isSquareish ? ['circle', 'square', 'ellipse', 'rounded'] : ['ellipse', 'rounded'];
+    }
+    return ['rounded', 'none']; // no strong signal either way -- stay gentle
   }
 
   function pickShapeFor(analysis) {
-    const isSquareish = analysis.aspect > 0.85 && analysis.aspect < 1.15;
-    if (analysis.focusScore > 1.4) return isSquareish ? 'circle' : 'ellipse';
-    if (analysis.focusScore < 0.8) return 'none'; // edge-heavy content -- don't crop anything off
-    return 'rounded'; // no strong signal either way -- a gentle, low-risk default
+    const candidates = shapeCandidatesFor(analysis);
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  function hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
+  function hslToHex(h, s, l) {
+    s /= 100; l /= 100;
+    const k = (n) => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    const toByte = (n) => Math.round(255 * f(n));
+    return '#' + [toByte(0), toByte(8), toByte(4)].map(v => v.toString(16).padStart(2, '0')).join('');
+  }
+
+  function colorsAreClose(hexA, hexB, threshold = 60) {
+    const a = hexToRgb(hexA);
+    const b = hexToRgb(hexB);
+    return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b) < threshold;
+  }
+
+  // Picks a border color for this photo that won't blend into the given
+  // background color -- an invisible border defeats the point of picking
+  // one at all. Tries the photo's own next-most-prevalent sampled colors
+  // first (still genuinely "from the photo"), and only forces contrast by
+  // pushing the top color's lightness away from the background's if every
+  // sampled option is too close to it.
+  function pickBorderColorAvoiding(analysis, avoidHex) {
+    if (!avoidHex || avoidHex === 'none') return analysis.colorOptions[0];
+    const distinct = analysis.colorOptions.find(hex => !colorsAreClose(hex, avoidHex));
+    if (distinct) return distinct;
+    const avoidRgb = hexToRgb(avoidHex);
+    const bgHsl = rgbToHsl(avoidRgb.r, avoidRgb.g, avoidRgb.b);
+    const topRgb = hexToRgb(analysis.colorOptions[0]);
+    const topHsl = rgbToHsl(topRgb.r, topRgb.g, topRgb.b);
+    const newL = bgHsl.l > 50 ? Math.max(8, bgHsl.l - 45) : Math.min(92, bgHsl.l + 45);
+    return hslToHex(topHsl.h, topHsl.s, newL);
   }
 
   // Only treats an orientation as "the odd one out" when it's a clear,
@@ -2357,7 +2417,9 @@
     analyses.forEach((a, i) => {
       if (!photoMasks[i]) return;
       photoMasks[i].mode = pickShapeFor(a);
-      photoMasks[i].borderColor = a.hex;
+      // Avoid a border that blends into Canvas Background -- an invisible
+      // border defeats the point of picking one at all.
+      photoMasks[i].borderColor = pickBorderColorAvoiding(a, canvasColorVal);
     });
 
     // One shared width for the whole collage -- thicker for a handful of
