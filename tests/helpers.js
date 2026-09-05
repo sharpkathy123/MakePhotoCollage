@@ -183,6 +183,45 @@ async function pasteTextInto(page, text = 'hello') {
   }, text);
 }
 
+// Dispatches a real dragenter+dragover+drop sequence at `document` (with an
+// actual DataTransfer carrying the given fixture images as Files) -- not a
+// mock, the genuine dragenter/dragover/dragleave/drop listeners run exactly
+// as they would for a real OS drag from Finder, the Photos app, etc.
+async function dropFilesOnPage(page, fixturePaths, mimeType = 'image/png') {
+  const files = fixturePaths.map((p) => ({
+    base64: fs.readFileSync(p).toString('base64'),
+    name: path.basename(p),
+  }));
+  await page.evaluate(({ files, mimeType }) => {
+    const dt = new DataTransfer();
+    files.forEach(({ base64, name }) => {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      dt.items.add(new File([bytes], name, { type: mimeType }));
+    });
+    document.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    document.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    document.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  }, { files, mimeType });
+}
+
+// Dispatches just dragenter (no drop) -- for testing the drag-active visual
+// state and its dragleave cleanup independently of an actual drop.
+async function dragEnterPage(page) {
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([new Uint8Array([0])], 'x.png', { type: 'image/png' }));
+    document.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  });
+}
+
+async function dragLeavePage(page) {
+  await page.evaluate(() => {
+    document.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true }));
+  });
+}
+
 module.exports = {
   FIXTURES,
   loadPhotos,
@@ -197,4 +236,7 @@ module.exports = {
   pinchGesture,
   pastePhotoInto,
   pasteTextInto,
+  dropFilesOnPage,
+  dragEnterPage,
+  dragLeavePage,
 };

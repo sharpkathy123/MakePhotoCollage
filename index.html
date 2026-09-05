@@ -46,6 +46,14 @@
       box-sizing: border-box;
     }
 
+    /* Shown for the whole time a file is being dragged over the page (see
+       the dragenter/dragover/dragleave/drop listeners) -- outline rather
+       than border so it doesn't shift any layout. */
+    .card.drag-active {
+      outline: 3px dashed var(--accent-color);
+      outline-offset: -3px;
+    }
+
     h1 {
       font-size: 1.3rem;
       margin-top: 0;
@@ -551,7 +559,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609042200').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609042300').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -979,6 +987,41 @@
       );
     }
   }
+
+  // Drag-and-drop: dropping image files anywhere on the page loads them the
+  // same way a file pick does. Native OS drag-and-drop between apps (e.g.
+  // dragging out of the Google Photos app) is an iPad-only capability --
+  // iPhone has no cross-app drag at all -- but this also covers dragging
+  // files from a desktop file manager, and the Photos app on iPad.
+  // dragCounter tracks nesting depth: dragenter/dragleave fire once per
+  // element boundary crossed, including every child of .card, so a plain
+  // boolean toggle would flicker every time the drag crosses a child.
+  let dragCounter = 0;
+  const dragCard = document.querySelector('.card');
+
+  document.addEventListener('dragenter', (e) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    dragCounter++;
+    dragCard.classList.add('drag-active');
+  });
+
+  document.addEventListener('dragover', (e) => {
+    if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+  });
+
+  document.addEventListener('dragleave', () => {
+    dragCounter = Math.max(0, dragCounter - 1);
+    if (dragCounter === 0) dragCard.classList.remove('drag-active');
+  });
+
+  document.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    dragCard.classList.remove('drag-active');
+    const files = Array.from(e.dataTransfer.files || []).filter(f => f.type.startsWith('image/'));
+    if (files.length) await loadImageFiles(files);
+  });
 
   // File Upload Handler
   imgInput.addEventListener('change', async (e) => {
