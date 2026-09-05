@@ -98,6 +98,53 @@ test.describe('Surprise Me', () => {
     expect(result.edgeShapesSeen).toEqual(['none']);
   });
 
+  // Regression test: Circle/Square used to require an aspect ratio between
+  // 0.85 and 1.15 (essentially "already a square photo") -- but ordinary
+  // camera/phone photos are almost never that shape (typical 4:3, 3:2, and
+  // 16:9 shots, portrait or landscape, all fall well outside that window),
+  // so Circle/Square were practically unreachable for real photos no
+  // matter how center-focused the content was. A center-focused photo at
+  // an ordinary photo aspect ratio (e.g. 3:4 portrait or 4:3 landscape)
+  // should now include Circle/Square; a true panorama-style aspect should
+  // still exclude them (too much would be cropped away).
+  test('Circle/Square are reachable at ordinary photo aspect ratios (3:4, 4:3), not just near-square ones', async ({ page }) => {
+    await page.goto('/index.html');
+
+    const result = await page.evaluate(() => {
+      function makeImage(draw, w, h) {
+        return new Promise((resolve) => {
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          draw(c.getContext('2d'), w, h);
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.src = c.toDataURL();
+        });
+      }
+      const centeredBlob = (cx, w, h) => {
+        cx.fillStyle = '#eeeeee';
+        cx.fillRect(0, 0, w, h);
+        cx.fillStyle = '#cc2222';
+        cx.beginPath();
+        cx.arc(w / 2, h / 2, Math.min(w, h) * 0.3, 0, Math.PI * 2);
+        cx.fill();
+      };
+      return Promise.all([
+        makeImage(centeredBlob, 300, 400), // 3:4 portrait -- a typical phone photo shape
+        makeImage(centeredBlob, 400, 300), // 4:3 landscape -- also typical
+        makeImage(centeredBlob, 800, 300), // panorama-ish -- should stay excluded
+      ]).then(([portrait, landscape, panorama]) => ({
+        portrait: shapeCandidatesFor(analyzePhoto(portrait)).sort(),
+        landscape: shapeCandidatesFor(analyzePhoto(landscape)).sort(),
+        panorama: shapeCandidatesFor(analyzePhoto(panorama)).sort(),
+      }));
+    });
+
+    expect(result.portrait).toEqual(['circle', 'ellipse', 'rounded', 'square']);
+    expect(result.landscape).toEqual(['circle', 'ellipse', 'rounded', 'square']);
+    expect(result.panorama).toEqual(['ellipse', 'rounded']);
+  });
+
   test('across many photos, Surprise Me actually uses more than one shape (not the same shape every time)', async ({ page }) => {
     await page.goto('/index.html');
     // 8 identical center-focused squarish photos -- same content profile,

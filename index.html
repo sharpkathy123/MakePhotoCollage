@@ -559,7 +559,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609051400').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609051600').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -2323,12 +2323,17 @@
   // off something that matters.
   function shapeCandidatesFor(analysis) {
     if (analysis.focusScore < 0.8) return ['none']; // edge-heavy content -- never crop
-    const isSquareish = analysis.aspect > 0.85 && analysis.aspect < 1.15;
+    // Circle/Square only suit a photo whose aspect ratio isn't too
+    // extreme -- but "too extreme" means an actual panorama or an
+    // unusually elongated crop, not merely "not a perfect square": real
+    // camera photos are almost never exactly square (ordinary 4:3, 3:2,
+    // and 16:9 shots, portrait or landscape, all fall within this range),
+    // so requiring near-1:1 aspect made circle/square practically
+    // unreachable for real photos.
+    const isRoundCropSafe = analysis.aspect > 0.55 && analysis.aspect < 1.8;
     if (analysis.focusScore > 1.4) {
-      // Center-focused: confident enough to crop tightly. Circle/Square
-      // only suit a roughly square photo -- forcing either onto a
-      // strongly elongated one would crop most of it away.
-      return isSquareish ? ['circle', 'square', 'ellipse', 'rounded'] : ['ellipse', 'rounded'];
+      // Center-focused: confident enough to crop tightly.
+      return isRoundCropSafe ? ['circle', 'square', 'ellipse', 'rounded'] : ['ellipse', 'rounded'];
     }
     return ['rounded', 'none']; // no strong signal either way -- stay gentle
   }
