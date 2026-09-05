@@ -559,7 +559,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609051600').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609052000').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -2331,11 +2331,24 @@
     // so requiring near-1:1 aspect made circle/square practically
     // unreachable for real photos.
     const isRoundCropSafe = analysis.aspect > 0.55 && analysis.aspect < 1.8;
-    if (analysis.focusScore > 1.4) {
+    // 1.4 sounds like a modest bar, but real macro/subject photos (tested
+    // against actual garden photos, not just synthetic ones) cluster
+    // tightly between about 1.0 and 1.5 -- a plain-ish blurred background
+    // still carries some texture, unlike a flat synthetic fill. At 1.4,
+    // the clear majority of genuinely well-centered real photos landed
+    // just under the bar and never reached Circle/Square at all.
+    if (analysis.focusScore > 1.1) {
       // Center-focused: confident enough to crop tightly.
       return isRoundCropSafe ? ['circle', 'square', 'ellipse', 'rounded'] : ['ellipse', 'rounded'];
     }
-    return ['rounded', 'none']; // no strong signal either way -- stay gentle
+    // No strong signal either way -- most scenery/landscape photos land
+    // here, since there's no single subject for the edge-vs-center energy
+    // comparison to key on. Circle/Square stay reserved for a confident
+    // center-focus read (they crop hard), but Ellipse is a much gentler
+    // crop -- it loses far less than a tight circle -- so it's safe to
+    // offer here too instead of leaving this bucket at Rounded/Original
+    // Aspect only.
+    return ['ellipse', 'rounded'];
   }
 
   function pickShapeFor(analysis) {

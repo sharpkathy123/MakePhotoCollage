@@ -145,6 +145,87 @@ test.describe('Surprise Me', () => {
     expect(result.panorama).toEqual(['ellipse', 'rounded']);
   });
 
+  // Regression test: a scenery/landscape photo has no single centered
+  // subject, so the edge-vs-center energy comparison never reads it as
+  // confidently "center-focused" -- it lands in the middle, no-strong-
+  // signal bucket, which used to only offer Rounded/Original Aspect. That
+  // meant Ellipse (and Circle/Square) were unreachable for an entire
+  // common category of real photos, not just an edge case. Ellipse is a
+  // much gentler crop than Circle -- it loses far less content -- so it's
+  // safe to offer even without a confident center-focus read.
+  test('a scenery photo with no single centered subject still gets Ellipse as an option, not just Rounded/Original Aspect', async ({ page }) => {
+    await page.goto('/index.html');
+
+    const result = await page.evaluate(async () => {
+      function makeImage(draw, w, h) {
+        return new Promise((resolve) => {
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          draw(c.getContext('2d'), w, h);
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.src = c.toDataURL();
+        });
+      }
+      function seededRandom(seed) {
+        let s = seed;
+        return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+      }
+      // A busy landscape with texture spread evenly across the whole
+      // frame and no one focal point -- detail near the edges is just as
+      // present as detail in the center.
+      const scenery = await makeImage((cx, w, h) => {
+        const rnd = seededRandom(1);
+        cx.fillStyle = '#7a8f6a';
+        cx.fillRect(0, 0, w, h);
+        for (let i = 0; i < 3000; i++) {
+          const x = rnd() * w, y = rnd() * h, shade = 80 + rnd() * 100;
+          cx.fillStyle = `rgb(${shade * 0.6},${shade},${shade * 0.5})`;
+          cx.fillRect(x, y, 4, 4);
+        }
+      }, 400, 300);
+
+      const analysis = analyzePhoto(scenery);
+      return { focusScore: analysis.focusScore, candidates: shapeCandidatesFor(analysis).sort() };
+    });
+
+    // Confirms this really is the "no strong signal" middle bucket, not
+    // the edge-heavy or confidently-center-focused ones.
+    expect(result.focusScore).toBeGreaterThan(0.8);
+    expect(result.focusScore).toBeLessThan(1.1);
+    expect(result.candidates).toEqual(['ellipse', 'rounded']);
+  });
+
+  // Regression test: the "confidently center-focused" bar (which gates
+  // Circle/Square) was calibrated against clean synthetic images and
+  // turned out to sit right in the middle of where REAL macro/subject
+  // photos actually score -- tested directly against real garden photos
+  // (see tests/fixtures/real-*.jpg), which clustered between ~1.0 and 1.5
+  // and mostly landed just under the old 1.4 bar. A typical real photo
+  // with a clear central subject (flower filling most of the frame, softly
+  // blurred background) should now actually reach Circle/Square, not just
+  // Ellipse/Rounded.
+  test('a real photo with a clear central subject reaches Circle/Square, calibrated against actual garden photos', async ({ page }) => {
+    await page.goto('/index.html');
+
+    const result = await page.evaluate(async () => {
+      function loadImg(url) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = url;
+        });
+      }
+      const img = await loadImg('/tests/fixtures/real-red-flower-topleft.jpg');
+      const analysis = analyzePhoto(img);
+      return { focusScore: analysis.focusScore, candidates: shapeCandidatesFor(analysis).sort() };
+    });
+
+    expect(result.focusScore).toBeGreaterThan(1.1);
+    expect(result.candidates).toEqual(['circle', 'ellipse', 'rounded', 'square']);
+  });
+
   test('across many photos, Surprise Me actually uses more than one shape (not the same shape every time)', async ({ page }) => {
     await page.goto('/index.html');
     // 8 identical center-focused squarish photos -- same content profile,
