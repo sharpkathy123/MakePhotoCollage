@@ -161,8 +161,9 @@
 
     /* Photo Border Color's own controls (not its width slider, which stays
        active regardless -- see syncSliderControls) dim rather than hide
-       when nothing is selected, the same disabled-but-visible treatment
-       #radiusGroup already uses below. */
+       when nothing is selected -- unlike #radiusGroup, which hides
+       outright when its one relevant mode ('rounded') isn't active,
+       Photo Border Color always applies to *some* photo once selected. */
     .color-row label.disabled,
     .icon-btn:disabled,
     .color-picker-box:disabled,
@@ -518,8 +519,12 @@
     </div>
     <!-- Compact like the border-width sliders (see .color-row-controls) --
          Corner Radius is a niche option and used to get a full-width slider
-         all to itself, out of proportion to how rarely it's touched. -->
-    <div class="control disabled" id="radiusGroup" style="flex-direction:row; align-items:center; justify-content:space-between;">
+         all to itself, out of proportion to how rarely it's touched. Only
+         shown at all when Rounded Rectangle is the active Frame Shape,
+         right where it's relevant, instead of always sitting there
+         disabled -- see the maskModeGroup click handler and
+         syncSliderControls() below for where its visibility gets set. -->
+    <div class="control" id="radiusGroup" style="display:none; flex-direction:row; align-items:center; justify-content:space-between;">
       <label for="cornerRadius">Corner Radius</label>
       <div style="display:flex; align-items:center; gap:8px;">
         <input type="range" id="cornerRadius" min="0" max="150" value="30" style="width:96px; padding:0; border:none; background:none;">
@@ -559,7 +564,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609052000').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609052100').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -1379,7 +1384,7 @@
       setActiveOption(maskBehaviorGroup, defaultMaskBehavior);
       cornerRadius.value = defaultRadius;
       radiusVal.textContent = `${defaultRadius}px`;
-      radiusGroup.classList.toggle('disabled', defaultMaskMode !== 'rounded');
+      radiusGroup.style.display = defaultMaskMode === 'rounded' ? 'flex' : 'none';
       return;
     }
     const primaryIdx = selectedIndices[0];
@@ -1394,7 +1399,7 @@
     setActiveOptionOrMixed(maskBehaviorGroup, masks.map(pm => pm.behavior));
     cornerRadius.value = m.radius;
     radiusVal.textContent = `${m.radius}px`;
-    radiusGroup.classList.toggle('disabled', m.mode !== 'rounded');
+    radiusGroup.style.display = m.mode === 'rounded' ? 'flex' : 'none';
     // A native color input rejects 'none' as a value (falls back to black),
     // so only assign it when it's an actual hex color -- the checkerboard
     // 'transparent-active' class is what actually signals "None" here,
@@ -1448,7 +1453,7 @@
   maskModeGroup.querySelectorAll('.option-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const value = btn.dataset.value;
-      radiusGroup.classList.toggle('disabled', value !== 'rounded');
+      radiusGroup.style.display = value === 'rounded' ? 'flex' : 'none';
       if (selectedIndices.length) {
         selectedIndices.forEach(idx => {
           if (photoMasks[idx]) photoMasks[idx].mode = value;

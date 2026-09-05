@@ -135,8 +135,7 @@ test.describe('Page layout & reachability', () => {
   // Regression coverage: Photo Border Color used to live in a separate,
   // conditionally-hidden panel from Outer Border/Background -- now all
   // three stay in one list, with just its own swatch/none disabling (not
-  // the row disappearing) when nothing's selected, the same
-  // disabled-but-visible treatment Corner Radius already uses.
+  // the row disappearing) when nothing's selected.
   test('Photo Border Color stays in the same always-visible list as Outer Border and Background', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
@@ -211,8 +210,8 @@ test.describe('Reclaiming vertical space', () => {
   test('Corner Radius uses the same compact slider width as the border-width sliders, not a full-width slider to itself', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
-    await page.click('button:text("Select All")'); // reveals #radiusGroup's real (enabled) width
-    await page.evaluate(() => { photoMasks[0].mode = 'rounded'; syncSliderControls(); }); // undims it
+    await page.click('button:text("Select All")');
+    await page.evaluate(() => { photoMasks[0].mode = 'rounded'; syncSliderControls(); }); // reveals #radiusGroup
 
     const radiusWidth = await page.locator('#cornerRadius').evaluate((el) => el.getBoundingClientRect().width);
     const borderSliderWidth = await page.locator('#outerSpacing').evaluate((el) => el.getBoundingClientRect().width);

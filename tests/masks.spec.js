@@ -81,17 +81,17 @@ test.describe('Per-photo masks', () => {
     expect(right).toEqual([255, 255, 255, 255]);
   });
 
-  test('corner radius only applies to, and is only shown as enabled for, the "rounded" mask', async ({ page }) => {
+  test('corner radius only applies to, and is only shown for, the "rounded" mask', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
     await page.click('button:text("Select All")'); // nothing is selected by default
     await page.waitForTimeout(50);
 
     await clickOption(page, '#maskModeGroup', 'circle');
-    await expect(page.locator('#radiusGroup')).toHaveClass(/disabled/);
+    await expect(page.locator('#radiusGroup')).toBeHidden();
 
     await clickOption(page, '#maskModeGroup', 'rounded');
-    await expect(page.locator('#radiusGroup')).not.toHaveClass(/disabled/);
+    await expect(page.locator('#radiusGroup')).toBeVisible();
   });
 
   test('mask controls reflect the currently-selected photo\'s own state, not a shared global value', async ({ page }) => {
