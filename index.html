@@ -394,7 +394,14 @@
            style="width:100%; margin-top:8px; padding:10px; border:2px dashed var(--accent-color); border-radius:8px; text-align:center; font-size:0.85rem; color:var(--accent-color); background:transparent; box-sizing:border-box;">
     <div id="gphotosInfo" hidden style="font-size:0.7rem; color:#8e8e93; margin-top:4px;">Google Photos import only works for accounts approved in the README's setup steps — not submitted for Google's public review.</div>
     <button class="btn-secondary" type="button" id="gphotosOpenPickerBtn" onclick="openGooglePhotosPickerTab()" style="display:none; width:100%; margin-top:6px;">🔗 Tap to Open Google Photos</button>
-    <button class="btn-secondary" type="button" id="startNewBtn" onclick="startNewCollage()" style="display:none; width:100%; margin-top:6px;">🗑️ Start New Collage</button>
+    <!-- Side by side, not stacked -- two separate full-width rows here
+         previously pushed the canvas down far enough to fall below the
+         viewport in real testing (the same class of mistake the rotation
+         lock toggle made earlier: see its own comment above). -->
+    <div style="display:flex; gap:8px; margin-top:6px;">
+      <button class="btn-secondary" type="button" id="surpriseMeBtn" onclick="surpriseMe()" style="display:none; flex:1;">🎲 Surprise Me</button>
+      <button class="btn-secondary" type="button" id="startNewBtn" onclick="startNewCollage()" style="display:none; flex:1;">🗑️ Start New Collage</button>
+    </div>
   </div>
 
   <!-- Which photo(s) you're about to edit -- lives right above the collage
@@ -552,7 +559,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609050200').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609050300').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -588,6 +595,7 @@
   const gphotosImportBtn = document.getElementById('gphotosImportBtn');
   const gphotosOpenPickerBtn = document.getElementById('gphotosOpenPickerBtn');
   const startNewBtn = document.getElementById('startNewBtn');
+  const surpriseMeBtn = document.getElementById('surpriseMeBtn');
   const innerSpacing = document.getElementById('innerSpacing');
   const outerSpacing = document.getElementById('outerSpacing');
   const innerSpacingVal = document.getElementById('innerSpacingVal');
@@ -877,6 +885,7 @@
     touchHint.style.display = 'block';
     saveBtn.disabled = false;
     startNewBtn.style.display = '';
+    surpriseMeBtn.style.display = '';
 
     updateUI();
     syncSliderControls(); // also shows/hides the per-photo panel based on the selection just set above
@@ -901,6 +910,7 @@
 
     imgInput.value = '';
     startNewBtn.style.display = 'none';
+    surpriseMeBtn.style.display = 'none';
     touchHint.style.display = 'none';
     saveBtn.disabled = true;
 
@@ -2200,6 +2210,195 @@
       if (score < bestScore) { bestScore = score; best = c; }
     });
     return best.hex;
+  }
+
+  // --- Surprise Me ---
+  // Auto-picks a shape, a sampled border color, and one shared border width
+  // per collage, then rearranges the photos -- grouping similar colors
+  // together and nudging a lone minority-orientation photo (e.g. the one
+  // portrait photo among several landscapes) into the visual center --
+  // rather than leaving them in whatever order they were loaded.
+
+  const COLOR_CATEGORY_ORDER = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'magenta', 'white', 'gray', 'black'];
+
+  function colorCategoryOf({ h, s, l }) {
+    if (l > 88) return 'white';
+    if (l < 12) return 'black';
+    if (s < 18) return 'gray';
+    const hueBuckets = [
+      ['red', 0], ['orange', 30], ['yellow', 60], ['green', 130],
+      ['cyan', 185], ['blue', 225], ['purple', 275], ['magenta', 320],
+    ];
+    let best = hueBuckets[0][0];
+    let bestDist = Infinity;
+    hueBuckets.forEach(([name, deg]) => {
+      const dist = Math.min(Math.abs(h - deg), 360 - Math.abs(h - deg));
+      if (dist < bestDist) { bestDist = dist; best = name; }
+    });
+    return best;
+  }
+
+  // Cheap, dependency-free per-photo analysis. There's no real subject/face
+  // detection available -- iOS Safari implements none of the browser Shape
+  // Detection APIs, and bundling a real ML model would be a big step for
+  // what's stayed a dependency-free single file -- so "is there something
+  // important near the edges" is approximated by comparing edge-region vs
+  // center-region pixel-gradient energy on a downsampled copy of the photo:
+  // a calm/blurry border with a busy center (a flower, a portrait) scores
+  // as center-focused; detail running to the frame edges (e.g. a group of
+  // people spanning the frame) scores as edge-heavy, and keeps its full
+  // original aspect instead of getting cropped by circle/square/ellipse.
+  function analyzePhoto(img) {
+    const SIZE = 48;
+    const c = document.createElement('canvas');
+    c.width = SIZE;
+    c.height = SIZE;
+    const cx = c.getContext('2d');
+    cx.drawImage(img, 0, 0, SIZE, SIZE);
+    const data = cx.getImageData(0, 0, SIZE, SIZE).data;
+
+    const luminanceAt = (x, y) => {
+      const i = (y * SIZE + x) * 4;
+      return 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    };
+
+    const margin = Math.round(SIZE * 0.15);
+    let edgeEnergy = 0, edgeCount = 0, centerEnergy = 0, centerCount = 0;
+    for (let y = 1; y < SIZE - 1; y++) {
+      for (let x = 1; x < SIZE - 1; x++) {
+        const gx = luminanceAt(x + 1, y) - luminanceAt(x - 1, y);
+        const gy = luminanceAt(x, y + 1) - luminanceAt(x, y - 1);
+        const mag = Math.hypot(gx, gy);
+        if (x < margin || x >= SIZE - margin || y < margin || y >= SIZE - margin) {
+          edgeEnergy += mag;
+          edgeCount++;
+        } else {
+          centerEnergy += mag;
+          centerCount++;
+        }
+      }
+    }
+    const avgEdge = edgeEnergy / Math.max(1, edgeCount);
+    const avgCenter = centerEnergy / Math.max(1, centerCount);
+    const focusScore = avgCenter / (avgEdge + 1); // +1 avoids a divide-by-zero blowup on a flat/blank photo
+
+    // Dominant color: a small online clustering of the same sampled pixels
+    // (already have them from the energy pass above), keeping whichever
+    // cluster covers the most pixels -- closer to "the flower's color"
+    // than a flat average would be, which a large plain background skews.
+    const clusters = [];
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const match = clusters.find(cl => Math.hypot(cl.r - r, cl.g - g, cl.b - b) < 40);
+      if (match) {
+        match.r = (match.r * match.count + r) / (match.count + 1);
+        match.g = (match.g * match.count + g) / (match.count + 1);
+        match.b = (match.b * match.count + b) / (match.count + 1);
+        match.count++;
+      } else {
+        clusters.push({ r, g, b, count: 1 });
+      }
+    }
+    clusters.sort((a, b) => b.count - a.count);
+    const top = clusters[0];
+    const hex = '#' + [top.r, top.g, top.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+
+    const aspect = (img.naturalWidth || 1) / (img.naturalHeight || 1);
+    const aspectBucket = aspect > 1.15 ? 'landscape' : aspect < 0.87 ? 'portrait' : 'square';
+
+    return { aspect, aspectBucket, focusScore, hex, colorCategory: colorCategoryOf(rgbToHsl(top.r, top.g, top.b)) };
+  }
+
+  function pickShapeFor(analysis) {
+    const isSquareish = analysis.aspect > 0.85 && analysis.aspect < 1.15;
+    if (analysis.focusScore > 1.4) return isSquareish ? 'circle' : 'ellipse';
+    if (analysis.focusScore < 0.8) return 'none'; // edge-heavy content -- don't crop anything off
+    return 'rounded'; // no strong signal either way -- a gentle, low-risk default
+  }
+
+  // Only treats an orientation as "the odd one out" when it's a clear,
+  // unique minimum -- a 1-1-1 split (or any tie for smallest) has no single
+  // odd photo to single out, so this returns null and the center stays
+  // wherever the color-grouping sort already put it.
+  function findMinorityOrientation(counts) {
+    const entries = Object.entries(counts).filter(([, n]) => n > 0);
+    if (entries.length < 2) return null;
+    entries.sort((a, b) => a[1] - b[1]);
+    return entries[0][1] < entries[1][1] ? entries[0][0] : null;
+  }
+
+  function computeCenterSlot(n, cols) {
+    const c = Math.max(1, cols);
+    const rows = Math.ceil(n / c);
+    const centerRow = Math.floor((rows - 1) / 2);
+    const centerCol = Math.floor((c - 1) / 2);
+    return Math.min(n - 1, centerRow * c + centerCol);
+  }
+
+  // Permutes every parallel per-photo array the same way -- rawImages,
+  // transforms, and photoMasks are all indexed by the same photo. zOrder is
+  // rebuilt fresh (top-to-bottom in the new order) since the old stacking
+  // order was tied to positions that no longer mean the same thing.
+  // Clears the selection rather than trying to remap it, for the same
+  // reason a fresh load starts with nothing selected.
+  function reorderPhotosBy(order) {
+    rawImages = order.map(i => rawImages[i]);
+    transforms = order.map(i => transforms[i]);
+    photoMasks = order.map(i => photoMasks[i]);
+    zOrder = order.map((_, i) => i);
+    selectedIndices = [];
+  }
+
+  function surpriseMe() {
+    if (!rawImages.length) return;
+
+    const analyses = rawImages.map(analyzePhoto);
+
+    analyses.forEach((a, i) => {
+      if (!photoMasks[i]) return;
+      photoMasks[i].mode = pickShapeFor(a);
+      photoMasks[i].borderColor = a.hex;
+    });
+
+    // One shared width for the whole collage -- thicker for a handful of
+    // photos (each reads as its own framed piece), thinner once there are
+    // enough that heavy borders would start to feel cluttered.
+    const width = Math.round(Math.max(10, Math.min(40, 48 - rawImages.length * 3)));
+    innerSpacing.value = width;
+    innerSpacing.dispatchEvent(new Event('input'));
+
+    activeCols = computeOptimalColumns(rawImages.length); // also picks layoutType, same as a fresh load
+    syncColumnDropdown(rawImages.length, activeCols);
+    const cols = layoutType === 'grid' ? activeCols : (layoutType === 'vertical' ? 1 : rawImages.length);
+
+    // Group similar colors together (e.g. three red-flower photos land
+    // next to each other, so a row tends to come out one color) -- a
+    // stable sort, so photos that end up in the same color bucket keep
+    // their original relative order.
+    const order = analyses.map((_, i) => i).sort((i, j) => {
+      const rank = (idx) => COLOR_CATEGORY_ORDER.indexOf(analyses[idx].colorCategory);
+      return rank(i) - rank(j) || i - j;
+    });
+
+    const counts = {};
+    analyses.forEach(a => { counts[a.aspectBucket] = (counts[a.aspectBucket] || 0) + 1; });
+    const minority = findMinorityOrientation(counts);
+    if (minority) {
+      const centerSlot = computeCenterSlot(rawImages.length, cols);
+      const minorityPos = order.findIndex(i => analyses[i].aspectBucket === minority);
+      if (minorityPos !== -1 && minorityPos !== centerSlot) {
+        [order[centerSlot], order[minorityPos]] = [order[minorityPos], order[centerSlot]];
+      }
+    }
+
+    reorderPhotosBy(order);
+    // A fresh arrangement makes any existing per-photo nudge meaningless,
+    // same as switching Arrangement already does.
+    transforms.forEach(t => { t.x = 0; t.y = 0; });
+
+    updateUI();
+    syncSliderControls();
+    requestRender();
   }
 
   // Native Share / Save

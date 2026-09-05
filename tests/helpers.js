@@ -222,6 +222,67 @@ async function dragLeavePage(page) {
   });
 }
 
+// Builds synthetic in-page photos (via canvas, no real files needed) and
+// loads them through applyNewImageSet directly -- for Surprise Me tests,
+// which need specific, controlled patterns (a flat color, a centered blob
+// on a plain background, noise right at the edges) rather than whatever a
+// real fixture photo happens to contain. Each spec is one of:
+//   { type: 'solid', width, height, color }
+//   { type: 'centerFocus', size, bgColor, fgColor } -- a small circle in
+//     the middle of an otherwise plain image; analyzePhoto should read this
+//     as center-focused (high focusScore).
+//   { type: 'edgeHeavy', size } -- random-colored speckles right along all
+//     four edges of an otherwise plain gray image; analyzePhoto should read
+//     this as edge-heavy (low focusScore).
+async function loadSyntheticPhotos(page, specs, { append = false } = {}) {
+  await page.evaluate(async ({ specs, append }) => {
+    function makeImage(draw, w, h) {
+      return new Promise((resolve) => {
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        draw(c.getContext('2d'), w, h);
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.src = c.toDataURL();
+      });
+    }
+    const images = await Promise.all(specs.map((spec) => {
+      if (spec.type === 'solid') {
+        return makeImage((cx, w, h) => { cx.fillStyle = spec.color; cx.fillRect(0, 0, w, h); }, spec.width, spec.height);
+      }
+      if (spec.type === 'centerFocus') {
+        return makeImage((cx, size) => {
+          cx.fillStyle = spec.bgColor;
+          cx.fillRect(0, 0, size, size);
+          cx.fillStyle = spec.fgColor;
+          cx.beginPath();
+          cx.arc(size / 2, size / 2, size * 0.15, 0, Math.PI * 2);
+          cx.fill();
+        }, spec.size, spec.size);
+      }
+      if (spec.type === 'edgeHeavy') {
+        return makeImage((cx, size) => {
+          cx.fillStyle = '#888888';
+          cx.fillRect(0, 0, size, size);
+          for (let i = 0; i < 400; i++) {
+            cx.fillStyle = `rgb(${(Math.random() * 255) | 0},${(Math.random() * 255) | 0},${(Math.random() * 255) | 0})`;
+            const side = i % 4;
+            let x, y;
+            if (side === 0) { x = Math.random() * size; y = Math.random() * 5; }
+            else if (side === 1) { x = Math.random() * size; y = size - 5 + Math.random() * 5; }
+            else if (side === 2) { x = Math.random() * 5; y = Math.random() * size; }
+            else { x = size - 5 + Math.random() * 5; y = Math.random() * size; }
+            cx.fillRect(x, y, 3, 3);
+          }
+        }, size, size);
+      }
+      throw new Error(`Unknown synthetic photo type: ${spec.type}`);
+    }));
+    applyNewImageSet(images, { append });
+  }, { specs, append });
+}
+
 module.exports = {
   FIXTURES,
   loadPhotos,
@@ -239,4 +300,5 @@ module.exports = {
   dropFilesOnPage,
   dragEnterPage,
   dragLeavePage,
+  loadSyntheticPhotos,
 };

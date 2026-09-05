@@ -210,7 +210,12 @@ test.describe('Mask Pan Behavior (Fixed vs Attached)', () => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
     await clickOption(page, '#layoutTypeGroup', 'horizontal');
-    await page.waitForFunction(() => layoutType === 'horizontal');
+    // layoutType flips synchronously on click, but the actual re-render
+    // (and cellBounds with it) is requestAnimationFrame-deferred -- wait
+    // for cellBounds to actually reflect the new layout (redLandscape's
+    // 5:3 aspect no longer squared off to the old grid's 600x600) instead
+    // of racing ahead of it.
+    await page.waitForFunction(() => layoutType === 'horizontal' && cellBounds[0] && cellBounds[0].w !== 600);
     await page.click('#rotationLockBtn'); // unlock -- locked by default
     await page.evaluate(() => { photoMasks[0].behavior = 'fixed'; });
 

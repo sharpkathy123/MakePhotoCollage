@@ -20,7 +20,12 @@ test.describe('Layout & cell sizing', () => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
     await clickOption(page, '#layoutTypeGroup', 'horizontal');
-    await page.waitForFunction(() => layoutType === 'horizontal');
+    // layoutType itself flips synchronously on click, but the actual
+    // re-render (and cellBounds with it) is requestAnimationFrame-deferred
+    // -- waiting on layoutType alone raced ahead of it under heavier
+    // parallel load. Wait for cellBounds to actually reflect the new
+    // layout (no longer the old grid's uniform 600x600) instead.
+    await page.waitForFunction(() => layoutType === 'horizontal' && cellBounds[0] && cellBounds[0].w !== 600);
 
     const bounds = await page.evaluate(() => cellBounds.map((b) => ({ w: b.w, h: b.h })));
     // redLandscape is 300x180 (aspect 5:3) -> width = round(600 * 5/3) = 1000, height = 600
