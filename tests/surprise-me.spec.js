@@ -111,6 +111,55 @@ test.describe('Surprise Me', () => {
 
     const shapes = await page.evaluate(() => photoMasks.map((m) => m.mode));
     expect(new Set(shapes).size).toBeGreaterThan(1);
+
+    // Shape usage is dealt from a shuffled bag per candidate group rather
+    // than rolled independently per photo, so all 4 candidate shapes
+    // (circle/square/ellipse/rounded) should come out exactly evenly for
+    // 8 photos sharing one candidate set -- not just "more than one".
+    const counts = {};
+    shapes.forEach((s) => { counts[s] = (counts[s] || 0) + 1; });
+    expect(Object.keys(counts).sort()).toEqual(['circle', 'ellipse', 'rounded', 'square']);
+    Object.values(counts).forEach((n) => expect(n).toBe(2));
+  });
+
+  test('assignShapesProportionally distributes each candidate shape proportionally, with any remainder handled per group', async ({ page }) => {
+    await page.goto('/index.html');
+
+    const result = await page.evaluate(() => {
+      const squareFocus = { focusScore: 2.0, aspect: 1.0 };
+      const elongatedFocus = { focusScore: 2.0, aspect: 2.0 };
+      const edgeHeavy = { focusScore: 0.5, aspect: 1.0 };
+
+      const countOf = (shapes) => {
+        const counts = {};
+        shapes.forEach((s) => { counts[s] = (counts[s] || 0) + 1; });
+        return counts;
+      };
+
+      // 9 photos sharing a 4-shape candidate set: 2/2/2/2 plus one extra
+      // (9 isn't evenly divisible by 4), not left fully to chance.
+      const nine = assignShapesProportionally(Array.from({ length: 9 }, () => squareFocus));
+      const nineCounts = countOf(nine);
+
+      // Two independent groups (elongated-focus only has ellipse/rounded
+      // as candidates, edge-heavy is always 'none') should each be
+      // distributed within their own group, not mixed with the other.
+      const mixed = assignShapesProportionally([
+        ...Array.from({ length: 4 }, () => edgeHeavy),
+        ...Array.from({ length: 6 }, () => elongatedFocus),
+      ]);
+      const mixedCounts = countOf(mixed);
+
+      return { nineCounts, mixedCounts };
+    });
+
+    const nineValues = Object.values(result.nineCounts).sort((a, b) => a - b);
+    expect(Object.keys(result.nineCounts).sort()).toEqual(['circle', 'ellipse', 'rounded', 'square']);
+    expect(nineValues).toEqual([2, 2, 2, 3]); // proportional, remainder goes to exactly one shape
+
+    expect(result.mixedCounts.none).toBe(4); // edge-heavy group, forced shape
+    expect(result.mixedCounts.ellipse).toBe(3); // elongated-focus group, split evenly
+    expect(result.mixedCounts.rounded).toBe(3);
   });
 
   test('applying Surprise Me sets a per-photo sampled border color and one shared border width, and picks a layout', async ({ page }) => {

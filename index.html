@@ -559,7 +559,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609051200').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609051400').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -2338,6 +2338,46 @@
     return candidates[Math.floor(Math.random() * candidates.length)];
   }
 
+  function shuffledCopy(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  // Assigns a shape to every photo, keeping each candidate shape's usage
+  // proportional to how many photos share that candidate set, instead of
+  // rolling independently per photo (which tends to clump on one shape by
+  // chance, especially with a handful of photos). Photos are first grouped
+  // by their exact candidate set (an edge-heavy photo only ever competes
+  // with other edge-heavy photos for shape variety, never with a
+  // center-focused one), then each group is dealt shapes from a shuffled
+  // "bag" of its candidates -- reshuffling a fresh bag only once the
+  // current one is empty -- so every candidate shape gets used about
+  // (group size / candidate count) times, with any remainder spread by
+  // chance across the group.
+  function assignShapesProportionally(analyses) {
+    const groups = new Map();
+    analyses.forEach((a, i) => {
+      const candidates = shapeCandidatesFor(a);
+      const key = candidates.join(',');
+      if (!groups.has(key)) groups.set(key, { candidates, indices: [] });
+      groups.get(key).indices.push(i);
+    });
+
+    const shapes = new Array(analyses.length);
+    groups.forEach(({ candidates, indices }) => {
+      let bag = [];
+      indices.forEach((i) => {
+        if (bag.length === 0) bag = shuffledCopy(candidates);
+        shapes[i] = bag.pop();
+      });
+    });
+    return shapes;
+  }
+
   function hexToRgb(hex) {
     const n = parseInt(hex.slice(1), 16);
     return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
@@ -2413,10 +2453,11 @@
     if (!rawImages.length) return;
 
     const analyses = rawImages.map(analyzePhoto);
+    const shapes = assignShapesProportionally(analyses);
 
     analyses.forEach((a, i) => {
       if (!photoMasks[i]) return;
-      photoMasks[i].mode = pickShapeFor(a);
+      photoMasks[i].mode = shapes[i];
       // Avoid a border that blends into Canvas Background -- an invisible
       // border defeats the point of picking one at all.
       photoMasks[i].borderColor = pickBorderColorAvoiding(a, canvasColorVal);
