@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos } = require('./helpers');
+const { FIXTURES, loadPhotos, clickOption, getActiveOptionValue } = require('./helpers');
 
 // Regression coverage for the "arrange the page around how it's actually
 // used" pass: sections are ordered by how likely a person is to want them
@@ -189,11 +189,13 @@ test.describe('Page layout & reachability', () => {
 // the compact width the border-width sliders already use, rather than a
 // full-width slider all to itself for a rarely-touched option.
 test.describe('Reclaiming vertical space', () => {
-  test('the "Style" and "Layout & Columns" section headings are gone; "1. Select Photos" (a real <label>) remains', async ({ page }) => {
+  // "Select Photos" lost its own numbering too -- with the other two
+  // headings gone, a lone "1." no longer meant anything.
+  test('the "Style" and "Layout & Columns" section headings are gone; "Select Photos" (a real <label>, unnumbered) remains', async ({ page }) => {
     await page.goto('/index.html');
 
     expect(await page.locator('.section-title').count()).toBe(0);
-    await expect(page.locator('label[for="imgInput"]')).toHaveText('1. Select Photos');
+    await expect(page.locator('label[for="imgInput"]')).toHaveText('Select Photos');
   });
 
   test('there is no in-app eyedropper any more', async ({ page }) => {
@@ -221,5 +223,72 @@ test.describe('Reclaiming vertical space', () => {
     await page.goto('/index.html');
 
     await expect(page.locator('.color-row[data-target="canvas"] label')).toHaveText('Background');
+  });
+});
+
+// Frame Shape/Behavior/Corner Radius used to disappear entirely with
+// nothing selected -- that hid their existence from new users and made it
+// impossible to set a preferred Frame Behavior before loading or selecting
+// any photo. They're now always visible: with nothing selected they edit
+// the DEFAULT every newly-loaded photo starts from; with a selection they
+// edit that selection, same as before.
+test.describe('Frame Shape/Behavior/Corner Radius defaults before selection', () => {
+  test('setting Frame Behavior with nothing selected sets the default new photos get', async ({ page }) => {
+    await page.goto('/index.html');
+    await expect(page.locator('#photoControlsScope')).toHaveText('Defaults for newly added photos');
+    expect(await getActiveOptionValue(page, '#maskBehaviorGroup')).toBe('attached'); // factory default
+
+    await clickOption(page, '#maskBehaviorGroup', 'fixed');
+    expect(await page.evaluate(() => defaultMaskBehavior)).toBe('fixed');
+
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    expect(await page.evaluate(() => photoMasks[0].behavior)).toBe('fixed');
+    // A fresh load selects nothing, so the panel still reads as defaults,
+    // now correctly showing the one just picked.
+    await expect(page.locator('#photoControlsScope')).toHaveText('Defaults for newly added photos');
+    expect(await getActiveOptionValue(page, '#maskBehaviorGroup')).toBe('fixed');
+  });
+
+  test('setting Frame Shape and Corner Radius with nothing selected also sets the defaults new photos get', async ({ page }) => {
+    await page.goto('/index.html');
+
+    await clickOption(page, '#maskModeGroup', 'circle');
+    expect(await page.evaluate(() => defaultMaskMode)).toBe('circle');
+
+    await clickOption(page, '#maskModeGroup', 'rounded');
+    await page.fill('#cornerRadius', '75');
+    await page.dispatchEvent('#cornerRadius', 'input');
+    expect(await page.evaluate(() => defaultRadius)).toBe(75);
+
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    const mask = await page.evaluate(() => ({ ...photoMasks[0] }));
+    expect(mask.mode).toBe('rounded');
+    expect(mask.radius).toBe(75);
+  });
+
+  test('selecting a photo edits that photo, not the default -- and deselecting reverts the panel to showing defaults', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+
+    await page.click('button:text("Select All")');
+    await expect(page.locator('#photoControlsScope')).toHaveText('Editing Photo 1');
+
+    await clickOption(page, '#maskBehaviorGroup', 'fixed');
+    expect(await page.evaluate(() => photoMasks[0].behavior)).toBe('fixed');
+    expect(await page.evaluate(() => defaultMaskBehavior)).toBe('attached'); // untouched
+
+    await page.click('button:text("Deselect All")');
+    await expect(page.locator('#photoControlsScope')).toHaveText('Defaults for newly added photos');
+    // The panel now shows the (untouched) default again, not photo 0's
+    // now-different value.
+    expect(await getActiveOptionValue(page, '#maskBehaviorGroup')).toBe('attached');
+  });
+
+  test('the scope label reads "Editing N Photos" for a multi-selection', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
+
+    await page.click('button:text("Select All")');
+    await expect(page.locator('#photoControlsScope')).toHaveText('Editing 2 Photos');
   });
 });

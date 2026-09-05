@@ -377,7 +377,7 @@
   <h1>Grid Collage Generator</h1>
 
   <div class="control">
-    <label for="imgInput">1. Select Photos</label>
+    <label for="imgInput">Select Photos</label>
     <div class="photo-source-row">
       <input type="file" id="imgInput" accept="image/*" multiple>
       <button type="button" class="info-toggle-btn" id="pasteBtn" onclick="pastePhotos()" aria-label="Paste photos from clipboard" title="Paste photos from clipboard">📋</button>
@@ -447,9 +447,9 @@
        stays-visible rather than being hidden outright -- its width slider
        stays active regardless, since photo border *width* affects every
        photo immediately, selection or not. No section heading above this
-       list or "3. Layout & Columns" below -- both were removed to cut
-       scrolling; the numbered "1. Select Photos" label stays since it's the
-       file input's actual <label>, not just a divider. There's also no
+       list or "Layout & Columns" below -- both were removed to cut
+       scrolling; "Select Photos" (also unnumbered now) stays since it's
+       the file input's actual <label>, not just a divider. There's also no
        eyedropper here anymore -- the native color swatches' own OS picker
        (iOS Safari's color sheet includes its own eyedropper/magnifier) made
        an in-app one redundant. -->
@@ -481,7 +481,15 @@
     </div>
   </div>
 
-  <div class="photo-controls-card" id="photoControls" style="display:none;">
+  <!-- Always visible, not just once something's selected -- these controls
+       used to disappear entirely with nothing selected, which hid their
+       existence from new users and made it impossible to set a preferred
+       Frame Shape/Behavior/Corner Radius before loading or selecting any
+       photo. With nothing selected they edit the DEFAULT that every newly-
+       loaded photo starts from instead (see defaultPhotoMask); with a
+       selection they edit that selection, same as before. -->
+  <div class="photo-controls-card" id="photoControls">
+    <div id="photoControlsScope" style="font-size:0.75rem; color:#8e8e93; font-weight:600; margin-bottom:8px;">Defaults for newly added photos</div>
     <div class="row">
       <div class="control">
         <label id="maskModeLabel">Frame Shape</label>
@@ -544,7 +552,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609050100').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609050200').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -600,7 +608,7 @@
   const ctx = canvas.getContext('2d');
   const saveBtn = document.getElementById('saveBtn');
   const touchHint = document.getElementById('touchHint');
-  const photoControls = document.getElementById('photoControls');
+  const photoControlsScope = document.getElementById('photoControlsScope');
   const resetPhotoBtn = document.getElementById('resetPhotoBtn');
   const bringToFrontBtn = document.getElementById('bringToFrontBtn');
   const sendToBackBtn = document.getElementById('sendToBackBtn');
@@ -631,12 +639,19 @@
   let activeCols = 3;
   let multiSelectMode = false;
 
+  // Frame Shape/Behavior/Corner Radius (the #photoControls panel) are
+  // settable even with nothing selected -- they edit these defaults
+  // instead, which every newly-loaded photo then starts from. Attached
+  // ("Moving Frame") is the factory default because the most common first
+  // thing a person does after loading photos is drag them around -- that
+  // should move the frame and photo together, not leave the frame
+  // stationary while the photo pans invisibly behind it.
+  let defaultMaskMode = 'none';
+  let defaultMaskBehavior = 'attached';
+  let defaultRadius = 30;
+
   function defaultPhotoMask() {
-    // Attached ("Moving Frame") is the default because the most common
-    // first thing a person does after loading photos is drag them around --
-    // that should move the frame and photo together, not leave the frame
-    // stationary while the photo pans invisibly behind it.
-    return { mode: 'none', behavior: 'attached', radius: 30, borderColor: '#ffffff' };
+    return { mode: defaultMaskMode, behavior: defaultMaskBehavior, radius: defaultRadius, borderColor: '#ffffff' };
   }
 
   function defaultTransform() {
@@ -1319,11 +1334,7 @@
   }
 
   function syncSliderControls() {
-    // The per-photo panel (Scale/Rotation, Frame Shape/Behavior, Corner
-    // Radius) only means something once 1+ photos are selected -- Select
-    // All or tapping a photo reveals it, Deselect All hides it again.
     const hasSelection = !!selectedIndices.length;
-    photoControls.style.display = hasSelection ? 'block' : 'none';
 
     // Photo Border Color stays visible in the color-row list alongside
     // Outer Border/Canvas Background either way, but its own swatch/none
@@ -1343,18 +1354,26 @@
     bringToFrontBtn.disabled = !hasSelection;
     sendToBackBtn.disabled = !hasSelection;
 
-    if (!selectedIndices.length) {
+    // Frame Shape/Behavior/Corner Radius stay visible and active either
+    // way -- with nothing selected they show and edit the DEFAULT that
+    // every newly-loaded photo starts from (see defaultPhotoMask);
+    // otherwise they show and edit the current selection, same as before.
+    if (!hasSelection) {
       selectedPhotoLabel.textContent = "No Photos Selected";
-      // Clear any highlighted Frame Shape/Behavior button left over from
-      // whichever photo was selected before -- same "nothing active" state
-      // already used for a mixed multi-selection, since there's no longer
-      // any photo whose value these buttons could be showing.
-      setActiveOption(maskModeGroup, null);
-      setActiveOption(maskBehaviorGroup, null);
+      photoControlsScope.textContent = "Defaults for newly added photos";
+      setActiveOption(maskModeGroup, defaultMaskMode);
+      setActiveOption(maskBehaviorGroup, defaultMaskBehavior);
+      cornerRadius.value = defaultRadius;
+      radiusVal.textContent = `${defaultRadius}px`;
+      radiusGroup.classList.toggle('disabled', defaultMaskMode !== 'rounded');
       return;
     }
     const primaryIdx = selectedIndices[0];
     const m = photoMasks[primaryIdx] || defaultPhotoMask();
+
+    photoControlsScope.textContent = selectedIndices.length === 1
+      ? `Editing Photo ${primaryIdx + 1}`
+      : `Editing ${selectedIndices.length} Photos`;
 
     const masks = selectedIndices.map(idx => photoMasks[idx] || defaultPhotoMask());
     setActiveOptionOrMixed(maskModeGroup, masks.map(pm => pm.mode));
@@ -1406,17 +1425,23 @@
   }
 
   // Mask controls apply to whichever photo(s) are currently selected, same
-  // pattern as the scale/rotation sliders above. Applying always resolves
-  // the selection to one shared value, so the clicked button can be marked
-  // active immediately and unambiguously -- no need to re-derive it from
-  // anything the browser rendered on its own.
+  // pattern as the scale/rotation sliders above -- or, with nothing
+  // selected, to the default every newly-loaded photo starts from (see
+  // defaultPhotoMask). Applying to a selection always resolves it to one
+  // shared value, so the clicked button can be marked active immediately
+  // and unambiguously -- no need to re-derive it from anything the browser
+  // rendered on its own.
   maskModeGroup.querySelectorAll('.option-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const value = btn.dataset.value;
       radiusGroup.classList.toggle('disabled', value !== 'rounded');
-      selectedIndices.forEach(idx => {
-        if (photoMasks[idx]) photoMasks[idx].mode = value;
-      });
+      if (selectedIndices.length) {
+        selectedIndices.forEach(idx => {
+          if (photoMasks[idx]) photoMasks[idx].mode = value;
+        });
+      } else {
+        defaultMaskMode = value;
+      }
       setActiveOption(maskModeGroup, value);
       requestRender();
     });
@@ -1429,9 +1454,13 @@
       // now identical in both modes -- Fixed vs. Attached only changes
       // what a subsequent drag updates (applyDragDelta), so switching
       // between them here never touches transforms at all.
-      selectedIndices.forEach(idx => {
-        if (photoMasks[idx]) photoMasks[idx].behavior = value;
-      });
+      if (selectedIndices.length) {
+        selectedIndices.forEach(idx => {
+          if (photoMasks[idx]) photoMasks[idx].behavior = value;
+        });
+      } else {
+        defaultMaskBehavior = value;
+      }
       setActiveOption(maskBehaviorGroup, value);
       requestRender();
     });
@@ -1440,9 +1469,13 @@
   cornerRadius.addEventListener('input', () => {
     const radius = parseInt(cornerRadius.value, 10) || 0;
     radiusVal.textContent = `${radius}px`;
-    selectedIndices.forEach(idx => {
-      if (photoMasks[idx]) photoMasks[idx].radius = radius;
-    });
+    if (selectedIndices.length) {
+      selectedIndices.forEach(idx => {
+        if (photoMasks[idx]) photoMasks[idx].radius = radius;
+      });
+    } else {
+      defaultRadius = radius;
+    }
     requestRender();
   });
 
@@ -2200,7 +2233,7 @@
   }
 
   updateUI();
-  syncSliderControls(); // starts Photo Border Color's controls correctly disabled (nothing selected yet)
+  syncSliderControls(); // starts Photo Border Color disabled and Frame Shape/Behavior/Corner Radius showing their defaults (nothing selected yet)
   syncRotationLockButton();
 </script>
 

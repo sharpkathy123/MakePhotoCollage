@@ -123,17 +123,21 @@ test.describe('Selection', () => {
   // label directly instead of calling syncSliderControls() the way
   // selectAllPhotos() does -- leaving the Frame Shape/Behavior buttons
   // showing whichever photo was selected before, with no visual sign
-  // nothing is selected any more.
-  test('Deselect All clears the Frame Shape/Behavior highlighting, not just the selection', async ({ page }) => {
+  // nothing is selected any more. Frame Shape/Behavior/Corner Radius are
+  // always visible now (see layout-reorg.spec.js's "defaults before
+  // selection" coverage), so Deselect All should swap the highlighting
+  // from the photo's own value back to the default, not clear it to blank.
+  test('Deselect All swaps the Frame Shape/Behavior highlighting from the photo back to the default', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
     await page.evaluate(() => { selectedIndices = [0]; photoMasks[0].mode = 'circle'; syncSliderControls(); });
 
-    expect(await page.locator('#maskModeGroup .option-btn.active').count()).toBe(1);
+    await expect(page.locator('#maskModeGroup .option-btn[data-value="circle"]')).toHaveClass(/active/);
 
     await page.click('button:text("Deselect All")');
 
-    expect(await page.locator('#maskModeGroup .option-btn.active').count()).toBe(0);
+    await expect(page.locator('#maskModeGroup .option-btn[data-value="none"]')).toHaveClass(/active/); // the default
+    expect(await page.locator('#maskModeGroup .option-btn.active').count()).toBe(1);
     await expect(page.locator('#selectedPhotoLabel')).toHaveText('No Photos Selected');
   });
 

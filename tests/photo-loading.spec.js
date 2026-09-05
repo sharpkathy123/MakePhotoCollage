@@ -2,10 +2,9 @@ const { test, expect } = require('@playwright/test');
 const { FIXTURES, loadPhotos } = require('./helpers');
 
 test.describe('Loading photos', () => {
-  test('starts with Save disabled and no photo controls visible', async ({ page }) => {
+  test('starts with Save disabled', async ({ page }) => {
     await page.goto('/index.html');
     await expect(page.locator('#saveBtn')).toBeDisabled();
-    await expect(page.locator('#photoControls')).toBeHidden();
   });
 
   test('loading files populates rawImages and enables Save', async ({ page }) => {
@@ -13,28 +12,28 @@ test.describe('Loading photos', () => {
     await loadPhotos(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait]);
 
     await expect(page.locator('#saveBtn')).toBeEnabled();
-    // Nothing is selected by default -- the per-photo panel only appears
-    // once a photo actually is selected (see multiselect.spec.js).
-    await expect(page.locator('#photoControls')).toBeHidden();
-
     const count = await page.evaluate(() => rawImages.length);
     expect(count).toBe(2);
   });
 
-  // Regression coverage for the "2. Style" merge: the per-photo panel
-  // (Photo Border Color, Frame Shape/Behavior, Corner Radius) is now
-  // shown/hidden purely by selection state, not by whether photos are
-  // loaded at all.
-  test('the per-photo panel appears once a photo is selected, and hides again once deselected', async ({ page }) => {
+  // Regression coverage: the Frame Shape/Behavior/Corner Radius panel used
+  // to disappear entirely with nothing selected, which hid its existence
+  // from new users and made it impossible to set a preferred Frame
+  // Behavior before loading or selecting any photo. It's now always
+  // visible; see layout-reorg.spec.js for the "editing defaults vs.
+  // editing a selection" coverage.
+  test('the Frame Shape/Behavior/Corner Radius panel is visible whether or not anything is selected', async ({ page }) => {
     await page.goto('/index.html');
+    await expect(page.locator('#photoControls')).toBeVisible();
+
     await loadPhotos(page, [FIXTURES.redLandscape]);
-    await expect(page.locator('#photoControls')).toBeHidden();
+    await expect(page.locator('#photoControls')).toBeVisible();
 
     await page.click('button:text("Select All")');
     await expect(page.locator('#photoControls')).toBeVisible();
 
     await page.click('button:text("Deselect All")');
-    await expect(page.locator('#photoControls')).toBeHidden();
+    await expect(page.locator('#photoControls')).toBeVisible();
   });
 
   test('selecting files a second time appends to the previous set instead of replacing it', async ({ page }) => {
@@ -59,7 +58,7 @@ test.describe('Loading photos', () => {
     expect(await page.evaluate(() => photoMasks.length)).toBe(0);
     expect(await page.evaluate(() => selectedIndices.length)).toBe(0);
     await expect(page.locator('#saveBtn')).toBeDisabled();
-    await expect(page.locator('#photoControls')).toBeHidden();
+    await expect(page.locator('#photoControls')).toBeVisible(); // always visible -- see the panel-visibility test above
     await expect(page.locator('#startNewBtn')).toBeHidden();
 
     // A fresh selection afterward starts a new set rather than appending
