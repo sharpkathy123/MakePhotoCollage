@@ -76,34 +76,36 @@ test.describe('Scale / rotation / reset', () => {
 });
 
 test.describe('Rotation lock toggle', () => {
-  // A small icon toggle (matching the Google Photos/info buttons), not a
-  // 4th button in the Select Multiple/Select All/Deselect All group -- that
-  // group's CSS assumes exactly 3 buttons per row (flex: 1 1 calc(33% -
-  // 6px)), and a 4th stretched to fill its own wrapped row, pushing the
-  // canvas down far enough to fall below the viewport in real testing.
+  // Shows a "Rotate" label, not just a bare lock icon -- an icon alone
+  // didn't say what it locks, and its title tooltip never shows on a touch
+  // device anyway. It's a sibling of the Select Multiple/Select All/
+  // Deselect All group, not a 4th button inside it -- that group's CSS
+  // assumes exactly 3 buttons per row (flex: 1 1 calc(33% - 6px)), and a
+  // 4th stretched to fill its own wrapped row, pushing the canvas down far
+  // enough to fall below the viewport in real testing.
   test('defaults to locked, and toggles on click', async ({ page }) => {
     await page.goto('/index.html');
 
     const btn = page.locator('#rotationLockBtn');
-    await expect(btn).toHaveText('🔒');
+    await expect(btn).toHaveText('🔒 Rotate');
     await expect(btn).toHaveAttribute('title', 'Rotation Locked — tap to unlock');
     await expect(btn).toHaveAttribute('aria-pressed', 'true');
     expect(await page.evaluate(() => rotationLocked)).toBe(true);
 
     await btn.click();
-    await expect(btn).toHaveText('🔓');
+    await expect(btn).toHaveText('🔓 Rotate');
     await expect(btn).toHaveAttribute('title', 'Rotation Unlocked — tap to lock');
     await expect(btn).toHaveAttribute('aria-pressed', 'false');
     expect(await page.evaluate(() => rotationLocked)).toBe(false);
 
     await btn.click();
-    await expect(btn).toHaveText('🔒');
+    await expect(btn).toHaveText('🔒 Rotate');
     expect(await page.evaluate(() => rotationLocked)).toBe(true);
   });
 
-  // Regression coverage: the icon toggle must not force the selection
-  // toolbar row(s) to wrap in a way that pushes the canvas out of easy
-  // reach -- see the comment above.
+  // Regression coverage: the toggle must not force the selection toolbar
+  // row(s) to wrap in a way that pushes the canvas out of easy reach -- see
+  // the comment above.
   test('adding the rotation lock toggle does not wrap the Select Multiple/Select All/Deselect All row', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/index.html');

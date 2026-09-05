@@ -61,16 +61,6 @@
       text-align: center;
     }
 
-    .section-title {
-      font-size: 0.95rem;
-      font-weight: 700;
-      margin-top: 16px;
-      margin-bottom: 8px;
-      border-bottom: 1px solid var(--border-color);
-      padding-bottom: 4px;
-      color: var(--accent-color);
-    }
-
     .control {
       margin-bottom: 12px;
       display: flex;
@@ -145,11 +135,11 @@
       border-color: var(--accent-color);
     }
 
-    /* One self-contained row per color target (Outer Border, Canvas
-       Background, Photo Border Color) -- label on the left, its own swatch/
-       eyedropper/none controls on the right, an iOS-Settings-row layout.
-       Each row acts directly on its own target; there's no shared "active
-       target" concept to toggle first (see applyColorToTarget/setColorNone). */
+    /* One self-contained row per color target (Outer Border, Background,
+       Photo Border Color) -- label on the left, its own swatch/none
+       controls on the right, an iOS-Settings-row layout. Each row acts
+       directly on its own target; there's no shared "active target"
+       concept to toggle first (see applyColorToTarget/setColorNone). */
     .color-row {
       display: flex;
       align-items: center;
@@ -190,8 +180,8 @@
     }
 
     /* A width slider sharing a color row's line stays compact -- the row's
-       own swatch/eyedropper/none still need their room -- rather than the
-       full-width block sliders get everywhere else on their own line. */
+       own swatch/none still need their room -- rather than the full-width
+       block sliders get everywhere else on their own line. */
     .color-row-controls input[type="range"] {
       width: 96px;
       padding: 0;
@@ -218,11 +208,6 @@
       display: flex;
       align-items: center;
       justify-content: center;
-    }
-
-    .icon-btn.active {
-      border-color: var(--accent-color);
-      background: #eef6ff;
     }
 
     /* A custom-rendered replacement for native <select> pickers, used for
@@ -275,13 +260,6 @@
 
     .color-picker-box.transparent-active::-webkit-color-swatch {
       background: repeating-linear-gradient(45deg, #ccc, #ccc 4px, #fff 4px, #fff 8px);
-    }
-
-    /* While sampling (eyedropper armed), the canvas shows a crosshair and a
-       hint instead of the normal grab cursor -- the next tap on it reads a
-       pixel instead of selecting/dragging a photo. */
-    canvas.sampling-color {
-      cursor: crosshair;
     }
 
     #canvas-container {
@@ -435,11 +413,13 @@
            rotate -- see the touchstart/touchmove handlers), same as every
            other transform. Rotation defaults locked since, unlike zoom, an
            accidental twist during an ordinary pinch is easy to trigger and
-           hard to notice; tap to unlock before twisting on purpose. A
-           small icon toggle (matching the Google Photos/info buttons)
-           rather than a 4th .button-group-inline button, which would break
-           that group's 3-across flex-basis and wrap onto its own row. -->
-      <button type="button" class="info-toggle-btn" id="rotationLockBtn" onclick="toggleRotationLock()" title="Rotation Locked — tap to unlock" aria-label="Toggle rotation lock" aria-pressed="true">🔒</button>
+           hard to notice; tap to unlock before twisting on purpose. Shows
+           a "Rotate" label, not just a bare lock icon -- an icon alone
+           didn't say what it locks, and its title tooltip never shows on a
+           touch device anyway. It's a sibling of .button-group-inline
+           rather than a 4th button inside it, so it doesn't disturb that
+           group's 3-across flex-basis math. -->
+      <button class="btn-secondary" type="button" id="rotationLockBtn" onclick="toggleRotationLock()" title="Rotation Locked — tap to unlock" aria-label="Toggle rotation lock" aria-pressed="true">🔒 Rotate</button>
       <div class="button-group-inline">
         <button class="btn-secondary" type="button" id="multiSelectToggleBtn" onclick="toggleMultiSelectMode()">Select Multiple</button>
         <button class="btn-secondary" type="button" onclick="selectAllPhotos()">Select All</button>
@@ -457,26 +437,28 @@
   <div id="canvas-container">
     <canvas id="collageCanvas"></canvas>
     <div class="touch-hint" id="touchHint" style="display:none;">🖐 Tap photo to select &bull; Drag to move &bull; Pinch to zoom &amp; rotate</div>
-    <div class="touch-hint" id="eyedropperHint" style="display:none;">💧 Tap the collage to pick that color</div>
   </div>
-
-  <div class="section-title">2. Style</div>
 
   <!-- All three color targets stay together as one list -- Outer Spacing
        pairs with Outer Border and Photo Spacing pairs with Photo Border
        Color (each width slider next to the color it borders). Photo Border
-       Color's own swatch/eyedropper/none disable (see syncSliderControls)
-       when nothing is selected, matching how Corner Radius below already
-       disables-but-stays-visible rather than being hidden outright -- its
-       width slider stays active regardless, since photo border *width*
-       affects every photo immediately, selection or not. -->
+       Color's own swatch/none disable (see syncSliderControls) when nothing
+       is selected, matching how Corner Radius below already disables-but-
+       stays-visible rather than being hidden outright -- its width slider
+       stays active regardless, since photo border *width* affects every
+       photo immediately, selection or not. No section heading above this
+       list or "3. Layout & Columns" below -- both were removed to cut
+       scrolling; the numbered "1. Select Photos" label stays since it's the
+       file input's actual <label>, not just a divider. There's also no
+       eyedropper here anymore -- the native color swatches' own OS picker
+       (iOS Safari's color sheet includes its own eyedropper/magnifier) made
+       an in-app one redundant. -->
   <div class="color-row" data-target="outer">
     <label for="outerColor">Outer Border</label>
     <div class="color-row-controls">
       <input type="range" id="outerSpacing" min="0" max="150" value="24" aria-label="Outer Border width" title="Outer Border width">
       <span class="spacing-val" id="outerSpacingVal">24px</span>
       <input type="color" class="color-picker-box" id="outerColor" value="#1c1c1e">
-      <button type="button" class="icon-btn eyedropper-btn" data-target="outer" title="Pick a color from the collage" aria-label="Pick Outer Border color from the collage">💧</button>
       <button type="button" class="icon-btn none-btn" data-target="outer" title="Transparent" aria-label="Set Outer Border to transparent">∅</button>
     </div>
   </div>
@@ -487,17 +469,15 @@
       <input type="range" id="innerSpacing" min="0" max="100" value="16" aria-label="Photo Border width" title="Photo Border width">
       <span class="spacing-val" id="innerSpacingVal">16px</span>
       <input type="color" class="color-picker-box" id="borderColor" value="#ffffff">
-      <button type="button" class="icon-btn eyedropper-btn" data-target="border" title="Pick a color from the collage" aria-label="Pick Photo Border color from the collage">💧</button>
       <button type="button" class="icon-btn none-btn" data-target="border" title="Transparent" aria-label="Set Photo Border to transparent">∅</button>
     </div>
   </div>
 
   <div class="color-row" data-target="canvas">
-    <label for="canvasColor">Canvas Background</label>
+    <label for="canvasColor">Background</label>
     <div class="color-row-controls">
       <input type="color" class="color-picker-box" id="canvasColor" value="#f2f2f7">
-      <button type="button" class="icon-btn eyedropper-btn" data-target="canvas" title="Pick a color from the collage" aria-label="Pick Canvas Background color from the collage">💧</button>
-      <button type="button" class="icon-btn none-btn" data-target="canvas" title="Transparent" aria-label="Set Canvas Background to transparent">∅</button>
+      <button type="button" class="icon-btn none-btn" data-target="canvas" title="Transparent" aria-label="Set Background to transparent">∅</button>
     </div>
   </div>
 
@@ -521,13 +501,18 @@
         </div>
       </div>
     </div>
-    <div class="control disabled" id="radiusGroup">
-      <label for="cornerRadius">Corner Radius: <span id="radiusVal">30px</span></label>
-      <input type="range" id="cornerRadius" min="0" max="150" value="30">
+    <!-- Compact like the border-width sliders (see .color-row-controls) --
+         Corner Radius is a niche option and used to get a full-width slider
+         all to itself, out of proportion to how rarely it's touched. -->
+    <div class="control disabled" id="radiusGroup" style="flex-direction:row; align-items:center; justify-content:space-between;">
+      <label for="cornerRadius">Corner Radius</label>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <input type="range" id="cornerRadius" min="0" max="150" value="30" style="width:96px; padding:0; border:none; background:none;">
+        <span class="spacing-val" id="radiusVal">30px</span>
+      </div>
     </div>
   </div>
 
-  <div class="section-title">3. Layout & Columns</div>
   <div class="row">
     <div class="control">
       <label id="layoutTypeLabel">Arrangement</label>
@@ -559,7 +544,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609042300').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609050100').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -712,11 +697,11 @@
   let dragMaxMovement = 0;
   const TAP_MOVEMENT_THRESHOLD = 5; // CSS pixels
 
-  // Each of the three color rows (Outer Border, Canvas Background, Photo
-  // Border Color) acts directly on its own target -- no shared "active
-  // target" to switch first. applyColorToTarget/setColorNone are the one
-  // place that routing lives, shared by each row's own <input type=color>,
-  // its eyedropper button, and its none button.
+  // Each of the three color rows (Outer Border, Background, Photo Border
+  // Color) acts directly on its own target -- no shared "active target" to
+  // switch first. applyColorToTarget/setColorNone are the one place that
+  // routing lives, shared by each row's own <input type=color> and its
+  // none button.
   function applyColorToTarget(target, hex) {
     if (target === 'outer') {
       outerColorVal = hex;
@@ -759,50 +744,6 @@
   document.querySelectorAll('.none-btn').forEach(btn => {
     btn.addEventListener('click', () => setColorNone(btn.dataset.target));
   });
-
-  // Eyedropper: arms sampling for one target, then reads the next tap on
-  // the canvas as a pixel color instead of a photo selection/drag -- see
-  // the early check in the touchstart/mousedown handlers below. No native
-  // EyeDropper API (unsupported in Safari, and the point is sampling from
-  // the collage specifically, not arbitrary screen pixels).
-  let samplingTarget = null;
-  const eyedropperHint = document.getElementById('eyedropperHint');
-
-  function armEyedropper(target) {
-    samplingTarget = target;
-    canvas.classList.add('sampling-color');
-    document.querySelectorAll('.eyedropper-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.target === target);
-    });
-    eyedropperHint.style.display = 'block';
-  }
-
-  function disarmEyedropper() {
-    samplingTarget = null;
-    canvas.classList.remove('sampling-color');
-    document.querySelectorAll('.eyedropper-btn').forEach(btn => btn.classList.remove('active'));
-    eyedropperHint.style.display = 'none';
-  }
-
-  document.querySelectorAll('.eyedropper-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (samplingTarget === btn.dataset.target) disarmEyedropper();
-      else armEyedropper(btn.dataset.target);
-    });
-  });
-
-  // Reads the canvas pixel at app-space (x, y) and applies it to whichever
-  // target is currently armed, then disarms. Returns true if a sample was
-  // taken (caller uses this to skip normal hit-testing/selection for the
-  // same tap).
-  function trySampleColor(x, y) {
-    if (!samplingTarget) return false;
-    const d = ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data;
-    const hex = '#' + [d[0], d[1], d[2]].map(c => c.toString(16).padStart(2, '0')).join('');
-    applyColorToTarget(samplingTarget, hex);
-    disarmEyedropper();
-    return true;
-  }
 
   // Sets the current layout type, keeping the Arrangement button group's
   // highlighted button in sync -- same self-contained-per-control pattern
@@ -946,7 +887,6 @@
     imgInput.value = '';
     startNewBtn.style.display = 'none';
     touchHint.style.display = 'none';
-    disarmEyedropper();
     saveBtn.disabled = true;
 
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
@@ -1386,16 +1326,13 @@
     photoControls.style.display = hasSelection ? 'block' : 'none';
 
     // Photo Border Color stays visible in the color-row list alongside
-    // Outer Border/Canvas Background either way, but its own swatch/
-    // eyedropper/none disable without a selection to apply to -- its width
-    // slider (innerSpacing) is untouched here, since photo border width
-    // affects every photo immediately, selection or not.
+    // Outer Border/Canvas Background either way, but its own swatch/none
+    // disable without a selection to apply to -- its width slider
+    // (innerSpacing) is untouched here, since photo border width affects
+    // every photo immediately, selection or not.
     borderColorLabel.classList.toggle('disabled', !hasSelection);
     borderColor.disabled = !hasSelection;
     document.querySelectorAll('[data-target="border"].icon-btn').forEach(btn => { btn.disabled = !hasSelection; });
-    if (!hasSelection && samplingTarget === 'border') {
-      disarmEyedropper();
-    }
 
     // Reset Photo/Bring to Front/Send to Back live in the always-visible
     // toolbar above the canvas (not the per-photo panel), same
@@ -2042,7 +1979,7 @@
   }
 
   function syncRotationLockButton() {
-    rotationLockBtn.textContent = rotationLocked ? '🔒' : '🔓';
+    rotationLockBtn.textContent = rotationLocked ? '🔒 Rotate' : '🔓 Rotate';
     rotationLockBtn.title = rotationLocked ? 'Rotation Locked — tap to unlock' : 'Rotation Unlocked — tap to lock';
     rotationLockBtn.setAttribute('aria-pressed', String(rotationLocked));
   }
@@ -2055,7 +1992,6 @@
     e.preventDefault();
     if (e.touches.length === 1) {
       const coords = getCanvasCoords(e);
-      if (trySampleColor(coords.x, coords.y)) return;
       const hit = hitTestCell(coords.x, coords.y);
       if (beginCellInteraction(hit)) return;
       isDragging = true;
@@ -2110,7 +2046,6 @@
   // Mouse Handlers
   canvas.addEventListener('mousedown', (e) => {
     const coords = getCanvasCoords(e);
-    if (trySampleColor(coords.x, coords.y)) return;
     const hit = hitTestCell(coords.x, coords.y);
     if (beginCellInteraction(hit)) return;
     isDragging = true;
@@ -2171,8 +2106,7 @@
   }
 
   // Computes a deduped, sorted, black/white-guaranteed palette from the
-  // given source canvases. No longer builds any visible swatch UI (the
-  // eyedropper replaced that) -- this purely feeds
+  // given source canvases. Builds no visible swatch UI -- this purely feeds
   // pickCanvasBackgroundColor's default-color pick.
   function extractSortedPalette(canvases) {
     const rawColors = [];

@@ -7,18 +7,19 @@ const { FIXTURES, loadPhotos } = require('./helpers');
 // Save button stays reachable from anywhere on the page instead of only
 // appearing after scrolling all the way down past every control.
 test.describe('Page layout & reachability', () => {
-  test('sections appear in priority order: Select Photos, Style, Layout & Columns', async ({ page }) => {
+  // Section headings ("2. Style", "3. Layout & Columns") were removed to
+  // cut scrolling -- only "1. Select Photos" remains, since it's the file
+  // input's actual <label>, not just a divider. Order is now verified via
+  // each section's first real control instead of a heading.
+  test('sections appear in priority order: Select Photos, Style controls, Layout controls', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
 
-    const headings = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('label[for="imgInput"], .section-title')).map(el => el.textContent.trim())
-    );
-    expect(headings).toEqual([
-      '1. Select Photos',
-      '2. Style',
-      '3. Layout & Columns',
-    ]);
+    const order = await page.evaluate(() => {
+      const all = Array.from(document.querySelectorAll('label[for="imgInput"], .color-row[data-target="outer"], #layoutTypeGroup'));
+      return all.map((el) => el.id || el.getAttribute('for') || el.dataset.target);
+    });
+    expect(order).toEqual(['imgInput', 'outer', 'layoutTypeGroup']);
   });
 
   test('the Save button is docked to the bottom of the viewport (#saveBar), not just placed at the end of the page', async ({ page }) => {
@@ -132,11 +133,11 @@ test.describe('Page layout & reachability', () => {
   });
 
   // Regression coverage: Photo Border Color used to live in a separate,
-  // conditionally-hidden panel from Outer Border/Canvas Background -- now
-  // all three stay in one list, with just its own swatch/eyedropper/none
-  // disabling (not the row disappearing) when nothing's selected, the same
+  // conditionally-hidden panel from Outer Border/Background -- now all
+  // three stay in one list, with just its own swatch/none disabling (not
+  // the row disappearing) when nothing's selected, the same
   // disabled-but-visible treatment Corner Radius already uses.
-  test('Photo Border Color stays in the same always-visible list as Outer Border and Canvas Background', async ({ page }) => {
+  test('Photo Border Color stays in the same always-visible list as Outer Border and Background', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
 
@@ -153,21 +154,17 @@ test.describe('Page layout & reachability', () => {
   });
 
   // The selection toolbar (which photo(s) you're about to edit) now sits
-  // right above the collage itself, not buried in the Style section below.
-  test('the photo selection toolbar sits above the canvas, not inside the Style section', async ({ page }) => {
+  // right above the collage itself, not buried below it among the color
+  // controls.
+  test('the photo selection toolbar sits above the canvas, not below it among the color controls', async ({ page }) => {
     await page.goto('/index.html');
     await loadPhotos(page, [FIXTURES.redLandscape]);
 
     const order = await page.evaluate(() => {
-      const all = Array.from(document.querySelectorAll('#selectedPhotoLabel, #canvas-container, .section-title'));
-      return all.map((el) => el.id || el.textContent.trim());
+      const all = Array.from(document.querySelectorAll('#selectedPhotoLabel, #canvas-container, .color-row[data-target="outer"]'));
+      return all.map((el) => el.id || el.dataset.target);
     });
-    const labelIdx = order.indexOf('selectedPhotoLabel');
-    const canvasIdx = order.indexOf('canvas-container');
-    const styleIdx = order.indexOf('2. Style');
-    expect(labelIdx).toBeGreaterThanOrEqual(0);
-    expect(labelIdx).toBeLessThan(canvasIdx);
-    expect(canvasIdx).toBeLessThan(styleIdx);
+    expect(order).toEqual(['selectedPhotoLabel', 'canvas-container', 'outer']);
   });
 
   // The Google Photos button only works for accounts approved via the
@@ -182,5 +179,47 @@ test.describe('Page layout & reachability', () => {
     await expect(btn).not.toHaveText(/Google Photos/);
     const box = await btn.boundingBox();
     expect(box.width).toBeLessThanOrEqual(48); // same small square as the (i) info button
+  });
+});
+
+// A round of feedback aimed squarely at cutting scroll distance: drop the
+// "2. Style"/"3. Layout & Columns" headings (pure dividers, not functional
+// labels), drop the in-app eyedropper (the native color swatches' own OS
+// picker already offers one), and shrink Corner Radius's slider to match
+// the compact width the border-width sliders already use, rather than a
+// full-width slider all to itself for a rarely-touched option.
+test.describe('Reclaiming vertical space', () => {
+  test('the "Style" and "Layout & Columns" section headings are gone; "1. Select Photos" (a real <label>) remains', async ({ page }) => {
+    await page.goto('/index.html');
+
+    expect(await page.locator('.section-title').count()).toBe(0);
+    await expect(page.locator('label[for="imgInput"]')).toHaveText('1. Select Photos');
+  });
+
+  test('there is no in-app eyedropper any more', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+
+    expect(await page.locator('.eyedropper-btn').count()).toBe(0);
+    expect(await page.locator('#eyedropperHint').count()).toBe(0);
+    // The none button (still a real, non-duplicate action) is untouched.
+    await expect(page.locator('.none-btn[data-target="outer"]')).toBeVisible();
+  });
+
+  test('Corner Radius uses the same compact slider width as the border-width sliders, not a full-width slider to itself', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadPhotos(page, [FIXTURES.redLandscape]);
+    await page.click('button:text("Select All")'); // reveals #radiusGroup's real (enabled) width
+    await page.evaluate(() => { photoMasks[0].mode = 'rounded'; syncSliderControls(); }); // undims it
+
+    const radiusWidth = await page.locator('#cornerRadius').evaluate((el) => el.getBoundingClientRect().width);
+    const borderSliderWidth = await page.locator('#outerSpacing').evaluate((el) => el.getBoundingClientRect().width);
+    expect(Math.abs(radiusWidth - borderSliderWidth)).toBeLessThan(2);
+  });
+
+  test('the Background color row label no longer says "Canvas Background"', async ({ page }) => {
+    await page.goto('/index.html');
+
+    await expect(page.locator('.color-row[data-target="canvas"] label')).toHaveText('Background');
   });
 });
