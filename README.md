@@ -15,9 +15,9 @@ Create beautiful photo collages right on your phone or computer. It’s complete
 * **✈️ Airplane Mode Ready:** Use it anywhere, even on a flight with no Wi-Fi or cellular signal.
 * **🎨 Color Palette Matcher:** Automatically picks colors directly from your photos to use as background or border frames.
 * **📐 Easy Shapes & Sizes:**
-  * Square crops (great for Instagram or photo grids)
-  * Fun shapes like **Circles** or **Rounded Corners**
+  * Square, Circle, Ellipse/Oval, or Rounded Rectangle crops (with an adjustable corner radius)
   * Custom photo positioning, scale, and rotation
+* **🎲 Surprise Me:** One tap picks a fitting shape and a border color for every photo (steering clear of colors too close to your background), then arranges everything — grouping similar colors together and centering an odd-one-out photo — for a good-looking layout without any manual fiddling.
 * **📲 Quick Save & Share:** Saves directly to your iPhone or Android photo library with one tap.
 
 ---
