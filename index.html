@@ -565,7 +565,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609191100').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609191200').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -2608,24 +2608,48 @@
 
     // Grid layout only: when the photo count doesn't divide evenly into
     // cols, the last row is short -- rather than leave it with empty
-    // cells, widen that row's own photos to exactly fill it. `order`
-    // already maps final position -> original index, so its last
-    // `remainder` entries ARE (before reordering happens below) exactly
-    // which original photos will end up in that short row. Distributed as
-    // evenly as possible rather than always doubling, so this closes the
-    // gap completely regardless of how short the row is, not just when a
-    // 2x span happens to be enough. Decided here, before shape assignment,
-    // so Circle/Square (a fixed 1x1 mask, meaningless on a wider cell) can
-    // be excluded from a spanned photo's own candidates up front.
+    // cells, widen some of the trailing photos to exactly fill it. `order`
+    // already maps final position -> original index, so working from the
+    // end of `order` (before reordering happens below) reaches exactly
+    // the photos that will end up in the trailing, affected rows.
+    //
+    // A row's own photos can only fill it using spans of 1 and 2 (never
+    // more) once that row has at least half of cols worth of photos in
+    // it -- a single lone photo in a short row would otherwise have to
+    // span the WHOLE row by itself, which reads as one dramatically
+    // stretched photo rather than a handful of modestly widened ones. So
+    // when the natural last row is too short for that on its own, one
+    // whole row at a time is folded in from above (each pull adds cols
+    // more candidates across one more row) until every affected row has
+    // enough photos to close its own gap with span-2s alone. Decided
+    // here, before shape assignment, so Circle/Square (a fixed 1x1 mask,
+    // meaningless on a wider cell) can be excluded from a spanned photo's
+    // own candidates up front.
     const spanByIdx = new Map();
     if (layoutType === 'grid' && cols >= 2) {
       const remainder = rawImages.length % cols;
       if (remainder !== 0) {
-        const lastRowStart = rawImages.length - remainder;
-        const base = Math.floor(cols / remainder);
-        const extra = cols % remainder;
-        for (let i = 0; i < remainder; i++) {
-          spanByIdx.set(order[lastRowStart + i], base + (i < extra ? 1 : 0));
+        const rows = Math.ceil(rawImages.length / cols);
+        const minRowSize = Math.ceil(cols / 2);
+        let affectedRowCount = 1;
+        let affectedCount = remainder;
+        while (Math.floor(affectedCount / affectedRowCount) < minRowSize && affectedRowCount < rows) {
+          affectedRowCount++;
+          affectedCount += cols;
+        }
+
+        const affectedStart = rawImages.length - affectedCount;
+        const rowBase = Math.floor(affectedCount / affectedRowCount);
+        const rowExtra = affectedCount % affectedRowCount;
+        let cursor = affectedStart;
+        for (let r = 0; r < affectedRowCount; r++) {
+          const rowSize = rowBase + (r < rowExtra ? 1 : 0);
+          const base = Math.floor(cols / rowSize);
+          const extra = cols % rowSize;
+          for (let i = 0; i < rowSize; i++) {
+            spanByIdx.set(order[cursor + i], base + (i < extra ? 1 : 0));
+          }
+          cursor += rowSize;
         }
       }
     }

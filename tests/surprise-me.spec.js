@@ -660,11 +660,33 @@ test.describe('Surprise Me', () => {
       // At least one photo actually got widened -- otherwise this test
       // would trivially pass even with spanning entirely broken/no-op'd.
       expect(geo.spans.some((s) => s > 1)).toBe(true);
-      // Spans in the last row sum to exactly one full row's worth of
-      // columns (the gap-closing guarantee), not more or less.
-      const remainder = geo.count % geo.cols;
-      const lastRowSpans = geo.spans.slice(geo.count - (remainder || geo.cols));
-      expect(lastRowSpans.reduce((a, b) => a + b, 0)).toBe(geo.cols);
+      // Total span-units across every photo exactly fills the grid (rows
+      // x cols) with nothing left over -- the gap-closing guarantee, true
+      // regardless of whether the widening landed in just the last row or
+      // was spread across more than one (see the "spreads across more
+      // than one row" test below for that specifically).
+      const rows = Math.ceil(geo.count / geo.cols);
+      expect(geo.spans.reduce((a, b) => a + b, 0)).toBe(geo.cols * rows);
+    });
+
+    test('spreads the widening across more than one row when there is more than one empty cell to close, instead of one dramatically wide photo', async ({ page }) => {
+      await page.goto('/index.html');
+      // 7 photos -- lands on a 3-column grid (verified directly), leaving
+      // only 1 photo in the last row but 2 empty cells to close. A single
+      // photo spanning all 3 columns by itself would technically close
+      // the gap too, but reads as one oddly stretched photo rather than
+      // several modestly widened ones.
+      await loadSyntheticPhotos(page, Array.from({ length: 7 }, (_, i) => ({
+        type: 'solid', width: 300, height: 300, color: `hsl(${i * 40}, 70%, 50%)`,
+      })));
+
+      await page.click('#surpriseMeBtn');
+      const geo = await gridGeometryCheck(page);
+
+      expect(geo.overlap).toBe(false);
+      expect(geo.allRowsSameWidth).toBe(true);
+      expect(geo.spans.filter((s) => s === 2).length).toBeGreaterThan(1);
+      expect(Math.max(...geo.spans)).toBeLessThanOrEqual(2); // never one giant span
     });
 
     test('a spanned photo never keeps Circle or Square (a fixed-square mask on a non-square cell)', async ({ page }) => {
