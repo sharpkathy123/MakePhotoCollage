@@ -565,7 +565,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609190900').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609191100').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -789,10 +789,15 @@
   // Smart Grid Column Calculator -- also picks the layout type (Horizontal
   // Strip for 3 or 5 photos, Grid otherwise), so despite the name this
   // isn't a pure function of itemCount alone; it has that one side effect.
-  function computeOptimalColumns(itemCount) {
+  // keepGridFor3or5: normally 3 or 5 photos force Horizontal Strip (a nice
+  // default for a fresh load), but that forcing is skipped when the caller
+  // asks for it AND the layout is already Grid -- used by Surprise Me so
+  // it doesn't undo an already-Grid arrangement back to a single strip,
+  // which would hide the shape/color/spanning randomization it just did.
+  function computeOptimalColumns(itemCount, keepGridFor3or5 = false) {
     if (!itemCount || itemCount <= 0) return 1;
 
-    if (itemCount === 3 || itemCount === 5) {
+    if ((itemCount === 3 || itemCount === 5) && !(keepGridFor3or5 && layoutType === 'grid')) {
       setLayoutType('horizontal');
       return itemCount;
     }
@@ -2263,6 +2268,19 @@
     return best.hex;
   }
 
+  // Picks a genuinely random color from the collage's own combined photo
+  // palette (see extractSortedPalette) -- unlike pickCanvasBackgroundColor
+  // (which always converges on the single most pleasant-looking default),
+  // this is for Surprise Me, where landing on a different color each press
+  // is the point. Excludes anything too close to avoidHex so two colors
+  // meant to read as distinct (e.g. Canvas Background vs. Outer Border)
+  // don't roll the same one and blend into each other.
+  function pickRandomPaletteColor(palette, avoidHex) {
+    const candidates = avoidHex ? palette.filter(c => !colorsAreClose(c.hex, avoidHex)) : palette;
+    const pool = candidates.length ? candidates : palette;
+    return pool[Math.floor(Math.random() * pool.length)].hex;
+  }
+
   // --- Surprise Me ---
   // Auto-picks a shape, a sampled border color, and one shared border width
   // per collage, then rearranges the photos -- grouping similar colors
@@ -2472,23 +2490,32 @@
 
   // Picks a border color for this photo that won't blend into the given
   // background color -- an invisible border defeats the point of picking
-  // one at all. Randomizes among the photo's own most-prevalent sampled
+  // one at all. Randomizes among the photo's own most VIVID sampled
   // colors (still genuinely "from the photo", and re-rolled on every
   // Surprise Me press instead of always landing on the single most
-  // dominant one), excluding any that are too close to the background;
-  // only forces contrast by pushing a sampled color's lightness away from
-  // the background's if every sampled option is too close to it.
+  // dominant one) rather than its most PREVALENT ones -- the single
+  // largest cluster in a real photo is very often a big, comparatively
+  // muted area (sky, wall, skin tone), which meant the brightest tones
+  // actually in the photo almost never got picked even though they were
+  // right there in colorOptions. Excludes any that are too close to the
+  // background; only forces contrast by pushing a sampled color's
+  // lightness away from the background's if every sampled option is too
+  // close to it.
   function pickBorderColorAvoiding(analysis, avoidHex) {
     const hasAvoid = !!avoidHex && avoidHex !== 'none';
-    const pool = analysis.colorOptions.slice(0, 3);
+    const bySaturation = analysis.colorOptions
+      .map(hex => { const c = hexToRgb(hex); return { hex, s: rgbToHsl(c.r, c.g, c.b).s }; })
+      .sort((a, b) => b.s - a.s)
+      .map(c => c.hex);
+    const pool = bySaturation.slice(0, 3);
     const candidates = hasAvoid ? pool.filter(hex => !colorsAreClose(hex, avoidHex)) : pool;
     if (candidates.length) {
       return candidates[Math.floor(Math.random() * candidates.length)];
     }
-    if (!hasAvoid) return analysis.colorOptions[0]; // pool was empty -- fall back to the top sampled color
+    if (!hasAvoid) return bySaturation[0] || analysis.colorOptions[0]; // pool was empty -- fall back to the most vivid sampled color
     const avoidRgb = hexToRgb(avoidHex);
     const bgHsl = rgbToHsl(avoidRgb.r, avoidRgb.g, avoidRgb.b);
-    const topRgb = hexToRgb(analysis.colorOptions[0]);
+    const topRgb = hexToRgb(bySaturation[0] || analysis.colorOptions[0]);
     const topHsl = rgbToHsl(topRgb.r, topRgb.g, topRgb.b);
     const newL = bgHsl.l > 50 ? Math.max(8, bgHsl.l - 45) : Math.min(92, bgHsl.l + 45);
     return hslToHex(topHsl.h, topHsl.s, newL);
@@ -2532,6 +2559,15 @@
 
     const analyses = rawImages.map(analyzePhoto);
 
+    // Canvas Background and Outer Border both get a fresh random color
+    // from the collage's own combined photo palette on every press, not
+    // just the per-photo borders -- picked (and applied) before the
+    // per-photo border loop below, so pickBorderColorAvoiding's
+    // background-clash check sees the NEW background, not the old one.
+    const palette = extractSortedPalette(rawImages);
+    applyColorToTarget('canvas', pickRandomPaletteColor(palette, null));
+    applyColorToTarget('outer', pickRandomPaletteColor(palette, canvasColorVal));
+
     // One shared width for the whole collage -- thicker for a handful of
     // photos (each reads as its own framed piece), thinner once there are
     // enough that heavy borders would start to feel cluttered.
@@ -2539,7 +2575,11 @@
     innerSpacing.value = width;
     innerSpacing.dispatchEvent(new Event('input'));
 
-    activeCols = computeOptimalColumns(rawImages.length); // also picks layoutType, same as a fresh load
+    // keepGridFor3or5=true: don't undo an already-Grid arrangement back to
+    // Horizontal Strip just because there happen to be 3 or 5 photos --
+    // that would hide the shape/color/spanning randomization this whole
+    // function just did behind a single unremarkable row.
+    activeCols = computeOptimalColumns(rawImages.length, true);
     syncColumnDropdown(rawImages.length, activeCols);
     const cols = layoutType === 'grid' ? activeCols : (layoutType === 'vertical' ? 1 : rawImages.length);
 

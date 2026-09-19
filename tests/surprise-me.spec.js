@@ -425,6 +425,8 @@ test.describe('Surprise Me', () => {
     const snapshot = async () => page.evaluate(() => ({
       colors: photoMasks.map((m) => m.borderColor),
       order: rawImages.map((img) => img.src),
+      canvasColor: canvasColorVal,
+      outerColor: outerColorVal,
     }));
 
     // Baseline is taken AFTER the first press, not before -- comparing
@@ -448,9 +450,110 @@ test.describe('Surprise Me', () => {
     expect(sawDifference).toBe(true);
   });
 
+  // Regression test: Canvas Background and Outer Border used to be
+  // untouched by Surprise Me entirely -- only per-photo borders varied.
+  test('Surprise Me also randomizes Canvas Background and Outer Border, not just per-photo borders', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadSyntheticPhotos(page, [
+      { type: 'solid', width: 300, height: 300, color: '#dd2222' },
+      { type: 'solid', width: 300, height: 300, color: '#22dd22' },
+      { type: 'solid', width: 300, height: 300, color: '#2222dd' },
+      { type: 'solid', width: 300, height: 300, color: '#dddd22' },
+    ]);
+
+    const canvasColors = new Set();
+    const outerColors = new Set();
+    for (let i = 0; i < 6; i++) {
+      await page.click('#surpriseMeBtn');
+      canvasColors.add(await page.evaluate(() => canvasColorVal));
+      outerColors.add(await page.evaluate(() => outerColorVal));
+    }
+
+    expect(canvasColors.size).toBeGreaterThan(1);
+    expect(outerColors.size).toBeGreaterThan(1);
+  });
+
+  // Regression test: border color used to draw from the top 3 sampled
+  // colors by PIXEL PREVALENCE -- but a real photo's single largest
+  // cluster is very often a big, comparatively muted area (sky, wall,
+  // skin tone), so a small but genuinely vivid accent region almost never
+  // ranked in the top 3 and could never be picked. Sorting by saturation
+  // first makes the vivid colors actually reachable.
+  test('a small but vivid accent color is reachable, not just the large muted background behind it', async ({ page }) => {
+    await page.goto('/index.html');
+    await page.evaluate(async () => {
+      function makeImage(draw, size) {
+        return new Promise((resolve) => {
+          const c = document.createElement('canvas');
+          c.width = size; c.height = size;
+          draw(c.getContext('2d'), size);
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.src = c.toDataURL();
+        });
+      }
+      // Four muted bands (40/25/20/10%) plus a small 5% vivid red-orange
+      // one -- by raw pixel prevalence the vivid band ranks 4th (verified
+      // directly: colorOptions comes back muted, muted, muted, vivid,
+      // ...), so a pool limited to the top 3 BY PREVALENCE excludes it
+      // entirely, no matter how many times Surprise Me is pressed.
+      const img = await makeImage((cx, size) => {
+        cx.fillStyle = '#8a9a8a'; cx.fillRect(0, 0, size, size * 0.40);
+        cx.fillStyle = '#c4b498'; cx.fillRect(0, size * 0.40, size, size * 0.25);
+        cx.fillStyle = '#8898a8'; cx.fillRect(0, size * 0.65, size, size * 0.20);
+        cx.fillStyle = '#a89878'; cx.fillRect(0, size * 0.85, size, size * 0.10);
+        cx.fillStyle = '#ff2200'; cx.fillRect(0, size * 0.95, size, size * 0.05);
+      }, 300);
+      applyNewImageSet([img], {});
+    });
+
+    const seen = new Set();
+    for (let i = 0; i < 20; i++) {
+      await page.click('#surpriseMeBtn');
+      seen.add(await page.evaluate(() => photoMasks[0].borderColor.toLowerCase()));
+    }
+
+    // The vivid accent should show up at least once across 20 rolls --
+    // allow for clustering/resampling to shift it slightly from the exact
+    // #ff2200 it was drawn with.
+    const rgbDistance = (hexA, hexB) => {
+      const toRgb = (h) => { const n = parseInt(h.slice(1), 16); return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }; };
+      const a = toRgb(hexA), b = toRgb(hexB);
+      return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
+    };
+    const sawVivid = Array.from(seen).some((hex) => rgbDistance(hex, '#ff2200') < 40);
+    expect(sawVivid).toBe(true);
+  });
+
+  // Regression test: 3 or 5 photos used to always force Horizontal Strip
+  // layout, even if the user had already picked Grid -- undoing their
+  // choice right when Surprise Me's other randomization (shapes, colors,
+  // spanning) would have been most visible in a grid arrangement.
+  test('Surprise Me keeps Grid layout for 3 or 5 photos when Grid was already selected', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadSyntheticPhotos(page, [
+      { type: 'solid', width: 300, height: 300, color: '#dd2222' },
+      { type: 'solid', width: 300, height: 300, color: '#22dd22' },
+      { type: 'solid', width: 300, height: 300, color: '#2222dd' },
+    ]);
+    await page.evaluate(() => { setLayoutType('grid'); requestRender(); });
+
+    await page.click('#surpriseMeBtn');
+
+    expect(await page.evaluate(() => layoutType)).toBe('grid');
+  });
+
   // An invisible border (one that blends straight into Canvas Background)
   // defeats the point of picking one at all.
-  test.describe('border color never collides with Canvas Background', () => {
+  // pickBorderColorAvoiding is now tested directly (rather than through a
+  // real #surpriseMeBtn click) because Surprise Me randomizes Canvas
+  // Background itself as of this round -- a test that manually pre-sets
+  // canvasColorVal before clicking would just get that value overwritten
+  // by the click's own random pick, making it impossible to control from
+  // the outside anymore. See the integration test right after this block
+  // for coverage that the anti-collision guarantee holds against whatever
+  // background a real press actually lands on.
+  test.describe('pickBorderColorAvoiding avoids clashing with a given background', () => {
     function rgbDistance(hexA, hexB) {
       const toRgb = (hex) => {
         const n = parseInt(hex.slice(1), 16);
@@ -460,38 +563,48 @@ test.describe('Surprise Me', () => {
       return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
     }
 
-    test('a photo whose sampled color matches Canvas Background exactly gets a visibly different border instead', async ({ page }) => {
+    test('a color that matches the background exactly gets a visibly different one instead', async ({ page }) => {
       await page.goto('/index.html');
-      await loadSyntheticPhotos(page, [{ type: 'solid', width: 300, height: 300, color: '#dd2222' }]);
-      await page.evaluate(() => { canvasColorVal = '#dd2222'; });
-
-      await page.click('#surpriseMeBtn');
-
-      const borderColor = await page.evaluate(() => photoMasks[0].borderColor);
-      expect(rgbDistance(borderColor, '#dd2222')).toBeGreaterThanOrEqual(60);
+      const result = await page.evaluate(() => pickBorderColorAvoiding({ colorOptions: ['#dd2222'] }, '#dd2222'));
+      expect(rgbDistance(result, '#dd2222')).toBeGreaterThanOrEqual(60);
     });
 
-    test('a photo whose sampled color does not clash with Canvas Background is left as its own sampled color', async ({ page }) => {
+    test('a color that does not clash with the background is left as its own sampled color', async ({ page }) => {
       await page.goto('/index.html');
-      await loadSyntheticPhotos(page, [{ type: 'solid', width: 300, height: 300, color: '#2222dd' }]);
-      await page.evaluate(() => { canvasColorVal = '#dd2222'; }); // red bg, blue photo -- no clash
-
-      await page.click('#surpriseMeBtn');
-
-      const borderColor = await page.evaluate(() => photoMasks[0].borderColor);
-      expect(rgbDistance(borderColor, '#2222dd')).toBeLessThan(10); // unchanged (small tolerance for canvas resampling)
+      const result = await page.evaluate(() => pickBorderColorAvoiding({ colorOptions: ['#2222dd'] }, '#dd2222'));
+      expect(rgbDistance(result, '#2222dd')).toBeLessThan(10);
     });
 
-    test('a transparent Canvas Background never triggers the anti-collision adjustment', async ({ page }) => {
+    test('no background (none) never triggers the anti-collision adjustment', async ({ page }) => {
       await page.goto('/index.html');
-      await loadSyntheticPhotos(page, [{ type: 'solid', width: 300, height: 300, color: '#dd2222' }]);
-      await page.evaluate(() => { canvasColorVal = 'none'; });
-
-      await page.click('#surpriseMeBtn');
-
-      const borderColor = await page.evaluate(() => photoMasks[0].borderColor);
-      expect(rgbDistance(borderColor, '#dd2222')).toBeLessThan(10);
+      const result = await page.evaluate(() => pickBorderColorAvoiding({ colorOptions: ['#dd2222'] }, 'none'));
+      expect(rgbDistance(result, '#dd2222')).toBeLessThan(10);
     });
+  });
+
+  test('per-photo border colors never clash with whatever Canvas Background Surprise Me itself just picked', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadSyntheticPhotos(page, [
+      { type: 'solid', width: 300, height: 300, color: '#dd2222' },
+      { type: 'solid', width: 300, height: 300, color: '#22dd22' },
+      { type: 'solid', width: 300, height: 300, color: '#2222dd' },
+    ]);
+
+    const rgbDistance = (hexA, hexB) => {
+      const toRgb = (h) => { const n = parseInt(h.slice(1), 16); return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }; };
+      const a = toRgb(hexA), b = toRgb(hexB);
+      return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
+    };
+
+    for (let i = 0; i < 8; i++) {
+      await page.click('#surpriseMeBtn');
+      const { bg, borders } = await page.evaluate(() => ({
+        bg: canvasColorVal,
+        borders: photoMasks.map((m) => m.borderColor),
+      }));
+      if (bg === 'none') continue; // nothing to clash with
+      borders.forEach((hex) => expect(rgbDistance(hex, bg)).toBeGreaterThanOrEqual(60));
+    }
   });
 
   // Grid layout only: when the photo count doesn't divide evenly into the
