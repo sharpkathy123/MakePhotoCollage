@@ -565,7 +565,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609190300').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609190500').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -2239,8 +2239,6 @@
   // portrait photo among several landscapes) into the visual center --
   // rather than leaving them in whatever order they were loaded.
 
-  const COLOR_CATEGORY_ORDER = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'magenta', 'white', 'gray', 'black'];
-
   function colorCategoryOf({ h, s, l }) {
     if (l > 88) return 'white';
     if (l < 12) return 'black';
@@ -2434,14 +2432,20 @@
 
   // Picks a border color for this photo that won't blend into the given
   // background color -- an invisible border defeats the point of picking
-  // one at all. Tries the photo's own next-most-prevalent sampled colors
-  // first (still genuinely "from the photo"), and only forces contrast by
-  // pushing the top color's lightness away from the background's if every
-  // sampled option is too close to it.
+  // one at all. Randomizes among the photo's own most-prevalent sampled
+  // colors (still genuinely "from the photo", and re-rolled on every
+  // Surprise Me press instead of always landing on the single most
+  // dominant one), excluding any that are too close to the background;
+  // only forces contrast by pushing a sampled color's lightness away from
+  // the background's if every sampled option is too close to it.
   function pickBorderColorAvoiding(analysis, avoidHex) {
-    if (!avoidHex || avoidHex === 'none') return analysis.colorOptions[0];
-    const distinct = analysis.colorOptions.find(hex => !colorsAreClose(hex, avoidHex));
-    if (distinct) return distinct;
+    const hasAvoid = !!avoidHex && avoidHex !== 'none';
+    const pool = analysis.colorOptions.slice(0, 3);
+    const candidates = hasAvoid ? pool.filter(hex => !colorsAreClose(hex, avoidHex)) : pool;
+    if (candidates.length) {
+      return candidates[Math.floor(Math.random() * candidates.length)];
+    }
+    if (!hasAvoid) return analysis.colorOptions[0]; // pool was empty -- fall back to the top sampled color
     const avoidRgb = hexToRgb(avoidHex);
     const bgHsl = rgbToHsl(avoidRgb.r, avoidRgb.g, avoidRgb.b);
     const topRgb = hexToRgb(analysis.colorOptions[0]);
@@ -2509,13 +2513,16 @@
     const cols = layoutType === 'grid' ? activeCols : (layoutType === 'vertical' ? 1 : rawImages.length);
 
     // Group similar colors together (e.g. three red-flower photos land
-    // next to each other, so a row tends to come out one color) -- a
-    // stable sort, so photos that end up in the same color bucket keep
-    // their original relative order.
-    const order = analyses.map((_, i) => i).sort((i, j) => {
-      const rank = (idx) => COLOR_CATEGORY_ORDER.indexOf(analyses[idx].colorCategory);
-      return rank(i) - rank(j) || i - j;
+    // next to each other, so a row tends to come out one color) -- which
+    // color group comes first, and which order photos within a group land
+    // in, are both reshuffled on every press, so the grouping itself stays
+    // intact but the arrangement doesn't look identical every time.
+    const groups = new Map();
+    analyses.forEach((a, i) => {
+      if (!groups.has(a.colorCategory)) groups.set(a.colorCategory, []);
+      groups.get(a.colorCategory).push(i);
     });
+    const order = shuffledCopy(Array.from(groups.keys())).flatMap(key => shuffledCopy(groups.get(key)));
 
     const counts = {};
     analyses.forEach(a => { counts[a.aspectBucket] = (counts[a.aspectBucket] || 0) + 1; });

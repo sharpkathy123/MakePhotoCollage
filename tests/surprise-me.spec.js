@@ -349,10 +349,78 @@ test.describe('Surprise Me', () => {
     // adjacent -- not interleaved -- once grouped by color. Compared by
     // equality to the first photo's own sampled color (rather than to a
     // fixed literal), since the clustering/resampling can shift a channel
-    // slightly from the original #dd2222/#2222dd.
+    // slightly from the original #dd2222/#2222dd. Which color group lands
+    // first is randomized on every press, so either grouped arrangement is
+    // valid here -- only "grouped, not interleaved" is being checked.
     const hexes = await page.evaluate(() => photoMasks.map((m) => m.borderColor.toLowerCase()));
     const sameAsFirst = hexes.map((h) => h === hexes[0]);
-    expect(sameAsFirst).toEqual([true, true, false, false]);
+    expect([[true, true, false, false], [false, false, true, true]]).toContainEqual(sameAsFirst);
+  });
+
+  // Regression test: border color used to always land on the single most-
+  // prevalent sampled color, and photo order was a fully deterministic
+  // sort -- so pressing Surprise Me repeatedly on the same photos produced
+  // the exact same result every time. Border color now randomizes among a
+  // photo's top few sampled colors, and which color group (and which
+  // photo within it) comes first is now reshuffled too, so repeated
+  // presses actually vary.
+  test('pressing Surprise Me repeatedly on the same photos produces different results, not the same arrangement every time', async ({ page }) => {
+    await page.goto('/index.html');
+    // Each photo has three substantial, distinctly-colored regions so its
+    // own top sampled colors genuinely differ from each other (not just
+    // one dominant color with a couple of stray pixels) -- giving
+    // pickBorderColorAvoiding real options to randomize among.
+    await page.evaluate(async () => {
+      function makeImage(draw, size) {
+        return new Promise((resolve) => {
+          const c = document.createElement('canvas');
+          c.width = size; c.height = size;
+          draw(c.getContext('2d'), size);
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.src = c.toDataURL();
+        });
+      }
+      const stripes = (colors) => (cx, size) => {
+        const bandH = size / colors.length;
+        colors.forEach((color, i) => {
+          cx.fillStyle = color;
+          cx.fillRect(0, i * bandH, size, bandH);
+        });
+      };
+      const images = await Promise.all([
+        makeImage(stripes(['#dd2222', '#22aa22', '#2222dd']), 200),
+        makeImage(stripes(['#dddd22', '#dd22dd', '#22dddd']), 200),
+        makeImage(stripes(['#dd8822', '#8822dd', '#22dd88']), 200),
+        makeImage(stripes(['#aa2222', '#22aa88', '#2288aa']), 200),
+      ]);
+      applyNewImageSet(images, {});
+    });
+
+    const snapshot = async () => page.evaluate(() => ({
+      colors: photoMasks.map((m) => m.borderColor),
+      order: rawImages.map((img) => img.src),
+    }));
+
+    // Baseline is taken AFTER the first press, not before -- comparing
+    // against the pre-press state (default white borders, original load
+    // order) would trivially "differ" on the very next press regardless of
+    // any randomization at all, proving nothing.
+    await page.click('#surpriseMeBtn');
+    const first = await snapshot();
+    // Several more presses, not just one -- makes a coincidental exact
+    // repeat (same color pool draw AND same shuffled order every single
+    // time) astronomically unlikely, rather than just "unlikely once".
+    let sawDifference = false;
+    for (let i = 0; i < 5; i++) {
+      await page.click('#surpriseMeBtn');
+      const next = await snapshot();
+      if (JSON.stringify(next) !== JSON.stringify(first)) {
+        sawDifference = true;
+        break;
+      }
+    }
+    expect(sawDifference).toBe(true);
   });
 
   // An invisible border (one that blends straight into Canvas Background)
