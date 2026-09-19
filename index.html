@@ -395,13 +395,15 @@
            style="width:100%; margin-top:8px; padding:10px; border:2px dashed var(--accent-color); border-radius:8px; text-align:center; font-size:0.85rem; color:var(--accent-color); background:transparent; box-sizing:border-box;">
     <div id="gphotosInfo" hidden style="font-size:0.7rem; color:#8e8e93; margin-top:4px;">Google Photos import only works for accounts approved in the README's setup steps — not submitted for Google's public review.</div>
     <button class="btn-secondary" type="button" id="gphotosOpenPickerBtn" onclick="openGooglePhotosPickerTab()" style="display:none; width:100%; margin-top:6px;">🔗 Tap to Open Google Photos</button>
-    <!-- Side by side, not stacked -- two separate full-width rows here
+    <!-- Side by side, not stacked -- separate full-width rows here
          previously pushed the canvas down far enough to fall below the
          viewport in real testing (the same class of mistake the rotation
-         lock toggle made earlier: see its own comment above). -->
+         lock toggle made earlier: see its own comment above), so Reset to
+         Default joins this same row rather than getting one of its own. -->
     <div style="display:flex; gap:8px; margin-top:6px;">
       <button class="btn-secondary" type="button" id="surpriseMeBtn" onclick="surpriseMe()" style="display:none; flex:1;">🎲 Surprise Me</button>
       <button class="btn-secondary" type="button" id="startNewBtn" onclick="startNewCollage()" style="display:none; flex:1;">🗑️ Start New Collage</button>
+      <button class="btn-secondary" type="button" id="resetDefaultBtn" onclick="resetToDefaultCollage()" style="display:none; flex:1;" title="Reset to Default (Keep Photos)">↩️ Reset</button>
     </div>
   </div>
 
@@ -565,7 +567,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609191600').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609191700').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -602,6 +604,7 @@
   const gphotosOpenPickerBtn = document.getElementById('gphotosOpenPickerBtn');
   const startNewBtn = document.getElementById('startNewBtn');
   const surpriseMeBtn = document.getElementById('surpriseMeBtn');
+  const resetDefaultBtn = document.getElementById('resetDefaultBtn');
   const innerSpacing = document.getElementById('innerSpacing');
   const outerSpacing = document.getElementById('outerSpacing');
   const innerSpacingVal = document.getElementById('innerSpacingVal');
@@ -729,6 +732,15 @@
   let pendingNarrowTo = null;
   let dragMaxMovement = 0;
   const TAP_MOVEMENT_THRESHOLD = 5; // CSS pixels
+  // The canvas has touch-action:none so a photo can be dragged freely in any
+  // direction (including vertically) -- but that also blocks the browser's
+  // own scrolling for every touch that starts on the canvas, even one that
+  // lands on empty space with no photo underneath. Set when a single-finger
+  // touch starts on empty canvas; touchmove then scrolls the page manually
+  // for as long as it stays set, so a swipe from a gap/background/border
+  // area still scrolls like it would anywhere else on the page.
+  let scrollTouchActive = false;
+  let scrollTouchLastY = 0;
 
   // Each of the three color rows (Outer Border, Background, Photo Border
   // Color) acts directly on its own target -- no shared "active target" to
@@ -905,6 +917,7 @@
     saveBtn.disabled = false;
     startNewBtn.style.display = '';
     surpriseMeBtn.style.display = '';
+    resetDefaultBtn.style.display = '';
 
     updateUI();
     syncSliderControls(); // also shows/hides the per-photo panel based on the selection just set above
@@ -930,12 +943,52 @@
     imgInput.value = '';
     startNewBtn.style.display = 'none';
     surpriseMeBtn.style.display = 'none';
+    resetDefaultBtn.style.display = 'none';
     touchHint.style.display = 'none';
     saveBtn.disabled = true;
 
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
     updateUI();
     syncSliderControls(); // also hides the per-photo panel, now that nothing is selected
+  }
+
+  // Keeps every currently-loaded photo but wipes every styling/layout
+  // choice made since -- shapes, border colors/widths, positions, z-order,
+  // selection, layout type/columns -- back to the same defaults a brand-new
+  // collage of these same photos would start from. Lets someone back out of
+  // a Surprise Me (or their own fiddling) they don't like without having to
+  // re-pick every photo from scratch.
+  function resetToDefaultCollage() {
+    if (!rawImages.length) return;
+    if (!confirm('Reset to the default collage? Your photos stay, but every color, shape, position, and layout choice will be lost.')) return;
+
+    transforms = rawImages.map(() => defaultTransform());
+    defaultMaskMode = 'none';
+    defaultMaskBehavior = 'attached';
+    defaultRadius = 30;
+    photoMasks = rawImages.map(defaultPhotoMask);
+    zOrder = rawImages.map((_, i) => i);
+    selectedIndices = [];
+    multiSelectMode = false;
+    multiSelectToggleBtn.classList.remove('active');
+    multiSelectHint.style.display = 'none';
+
+    applyColorToTarget('outer', '#1c1c1e');
+    innerSpacing.value = 16;
+    outerSpacing.value = 24;
+    innerSpacing.dispatchEvent(new Event('input'));
+    outerSpacing.dispatchEvent(new Event('input'));
+
+    // Same as a fresh load: picks Grid (or Horizontal Strip for 3/5 photos)
+    // and a real Canvas Background color sampled from the photos themselves.
+    activeCols = computeOptimalColumns(rawImages.length);
+    syncColumnDropdown(rawImages.length, activeCols);
+    const palette = extractSortedPalette(rawImages);
+    applyColorToTarget('canvas', pickCanvasBackgroundColor(palette));
+
+    updateUI();
+    syncSliderControls();
+    requestRender();
   }
 
   // Shared by the file input and the clipboard paste button: decodes each
@@ -2084,14 +2137,23 @@
   }
 
   canvas.addEventListener('touchstart', (e) => {
-    // Without this, browsers fire a synthetic mousedown/click after a quick
-    // tap (for legacy no-touch-listener compatibility), which would run our
-    // mousedown handler a second time for the same tap — e.g. double-toggling
-    // a multi-select pick right back off. preventDefault() suppresses that.
-    e.preventDefault();
     if (e.touches.length === 1) {
       const coords = getCanvasCoords(e);
       const hit = hitTestCell(coords.x, coords.y);
+      if (hit === -1) {
+        // Empty canvas space -- still deselects like before, but don't
+        // preventDefault() or start a drag: let touchmove drive a manual
+        // scroll instead (see scrollTouchActive above).
+        beginCellInteraction(hit);
+        scrollTouchActive = true;
+        scrollTouchLastY = e.touches[0].clientY;
+        return;
+      }
+      // Without this, browsers fire a synthetic mousedown/click after a quick
+      // tap (for legacy no-touch-listener compatibility), which would run our
+      // mousedown handler a second time for the same tap — e.g. double-toggling
+      // a multi-select pick right back off. preventDefault() suppresses that.
+      e.preventDefault();
       if (beginCellInteraction(hit)) return;
       isDragging = true;
       dragStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -2099,7 +2161,9 @@
       captureInitialTransforms();
       requestRender();
     } else if (e.touches.length === 2) {
+      e.preventDefault();
       isDragging = false;
+      scrollTouchActive = false;
       pendingNarrowTo = null; // a second touch means this was never a plain tap
       initialPinchDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
@@ -2111,6 +2175,12 @@
   }, { passive: false });
 
   canvas.addEventListener('touchmove', (e) => {
+    if (scrollTouchActive && e.touches.length === 1) {
+      const currentY = e.touches[0].clientY;
+      window.scrollBy(0, scrollTouchLastY - currentY);
+      scrollTouchLastY = currentY;
+      return;
+    }
     if (isDragging && e.touches.length === 1 && selectedIndices.length) {
       const rect = canvas.getBoundingClientRect();
       const scaleFactor = canvas.width / rect.width;
@@ -2136,6 +2206,7 @@
 
   canvas.addEventListener('touchend', () => {
     isDragging = false;
+    scrollTouchActive = false;
     initialPinchDist = null;
     initialPinchAngle = null;
     resolvePendingNarrow(dragMaxMovement > TAP_MOVEMENT_THRESHOLD);
@@ -2568,12 +2639,9 @@
     applyColorToTarget('canvas', pickRandomPaletteColor(palette, null));
     applyColorToTarget('outer', pickRandomPaletteColor(palette, canvasColorVal));
 
-    // One shared width for the whole collage -- thicker for a handful of
-    // photos (each reads as its own framed piece), thinner once there are
-    // enough that heavy borders would start to feel cluttered.
-    const width = Math.round(Math.max(10, Math.min(40, 48 - rawImages.length * 3)));
-    innerSpacing.value = width;
-    innerSpacing.dispatchEvent(new Event('input'));
+    // Photo Border width (innerSpacing) is left alone here, same as Outer
+    // Border width already is -- a width the user dialed in by hand
+    // shouldn't get silently overwritten by a tap on Surprise Me.
 
     // keepGridFor3or5=true: don't undo an already-Grid arrangement back to
     // Horizontal Strip just because there happen to be 3 or 5 photos --

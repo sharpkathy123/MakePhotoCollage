@@ -2,9 +2,10 @@ const { test, expect } = require('@playwright/test');
 const { loadSyntheticPhotos } = require('./helpers');
 
 // "Surprise Me" auto-picks a shape and a sampled border color per photo,
-// one shared border width for the whole collage, and rearranges the photos
-// (grouping similar colors together, centering a lone minority-orientation
-// photo). There's no real subject/face detection behind the shape pick --
+// and rearranges the photos (grouping similar colors together, centering a
+// lone minority-orientation photo) -- leaving both border-width sliders as
+// the user set them. There's no real subject/face detection behind the
+// shape pick --
 // iOS Safari has no browser API for it, and a real ML model would be a big
 // step for this dependency-free single file -- so it's a cheap heuristic
 // (edge-region vs center-region pixel-gradient energy) instead. These
@@ -315,7 +316,7 @@ test.describe('Surprise Me', () => {
     expect(Object.values(result.nonSpannedCounts).sort((a, b) => a - b)).toEqual([1, 1, 2, 2]);
   });
 
-  test('applying Surprise Me sets a per-photo sampled border color and one shared border width, and picks a layout', async ({ page }) => {
+  test('applying Surprise Me sets a per-photo sampled border color and picks a layout', async ({ page }) => {
     await page.goto('/index.html');
     await loadSyntheticPhotos(page, [
       { type: 'solid', width: 300, height: 180, color: '#dd2222' },
@@ -331,9 +332,31 @@ test.describe('Surprise Me', () => {
     expect(colors).toHaveLength(2);
     colors.forEach((hex) => expect(hex).toMatch(/^#[0-9a-f]{6}$/));
 
-    const width = await page.evaluate(() => parseInt(innerSpacing.value, 10));
-    expect(width).toBeGreaterThan(0);
     expect(await page.evaluate(() => layoutType)).toBeTruthy();
+  });
+
+  // Regression test: Surprise Me used to compute its own "shared" Photo
+  // Border width and overwrite whatever the user had dialed in on every
+  // press -- Outer Border width was already left untouched, so this made
+  // the two controls behave inconsistently for no reason a user could see.
+  test('Surprise Me leaves the Photo Border width slider alone, same as it already does for Outer Border', async ({ page }) => {
+    await page.goto('/index.html');
+    await loadSyntheticPhotos(page, [
+      { type: 'solid', width: 300, height: 180, color: '#dd2222' },
+      { type: 'solid', width: 300, height: 180, color: '#2222dd' },
+    ]);
+
+    await page.fill('#innerSpacing', '77');
+    await page.dispatchEvent('#innerSpacing', 'input');
+    await page.fill('#outerSpacing', '88');
+    await page.dispatchEvent('#outerSpacing', 'input');
+
+    for (let i = 0; i < 5; i++) {
+      await page.click('#surpriseMeBtn');
+    }
+
+    expect(await page.inputValue('#innerSpacing')).toBe('77');
+    expect(await page.inputValue('#outerSpacing')).toBe('88');
   });
 
   // Regression test: the centering swap used to run unconditionally

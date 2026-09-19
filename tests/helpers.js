@@ -132,6 +132,28 @@ async function twoFingerGesture(page, pairs) {
   }, pairs);
 }
 
+// Dispatches a real single-finger touch gesture on the canvas, the same way
+// twoFingerGesture does for two touches -- genuine touchstart/touchmove/
+// touchend handlers run exactly as they would for a real one-finger swipe.
+// `points` is an array of {x,y} viewport coordinates: the first fires
+// touchstart, any further ones each fire touchmove, and a final touchend
+// (no touches) closes the gesture.
+async function oneFingerGesture(page, points) {
+  await page.evaluate((points) => {
+    const canvas = document.getElementById('collageCanvas');
+    function touchEventFor(type, p) {
+      const touches = p ? [new Touch({ identifier: 0, target: canvas, clientX: p.x, clientY: p.y })] : [];
+      const changedTouches = p ? touches : [new Touch({ identifier: 0, target: canvas, clientX: points[points.length - 1].x, clientY: points[points.length - 1].y })];
+      return new TouchEvent(type, { touches, changedTouches, bubbles: true, cancelable: true });
+    }
+    canvas.dispatchEvent(touchEventFor('touchstart', points[0]));
+    for (let i = 1; i < points.length; i++) {
+      canvas.dispatchEvent(touchEventFor('touchmove', points[i]));
+    }
+    canvas.dispatchEvent(touchEventFor('touchend', null));
+  }, points);
+}
+
 // Simulates a two-finger pinch/twist centered on the given app-space point:
 // two touches start `startDist` (app-space px) apart at `startAngle`
 // degrees and end `endDist` apart at `endAngle` degrees. A single
@@ -315,6 +337,7 @@ module.exports = {
   clickOption,
   getActiveOptionValue,
   twoFingerGesture,
+  oneFingerGesture,
   pinchGesture,
   pastePhotoInto,
   pastePhotosInto,
