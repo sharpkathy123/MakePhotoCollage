@@ -552,6 +552,7 @@
 
   <div class="version-stamp">
     Updated: <span id="updateTimestamp">…</span>
+    · <a href="https://github.com/sharpkathy123/MakePhotoCollage" target="_blank" rel="noopener" style="color:inherit;">GitHub</a>
   </div>
 </div>
 
@@ -564,7 +565,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609052100').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609190300').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -1022,15 +1023,25 @@
   pasteZone.addEventListener('paste', async (e) => {
     e.preventDefault(); // don't let the pasted image insert itself as content
     const items = Array.from(e.clipboardData ? e.clipboardData.items : []);
-    const fileItem = items.find(item => item.kind === 'file' && item.type.startsWith('image/'));
-    const file = fileItem && fileItem.getAsFile();
+    // Collect every image item, not just the first -- a multi-photo copy
+    // (e.g. several photos selected in Photos and copied at once) can put
+    // more than one file item on the clipboard. Whether iOS Safari's
+    // classic paste event actually exposes more than one is a separate,
+    // platform-level question (its clipboardData.items has historically
+    // been limited to a single item even when the OS-level copy held
+    // several) -- but this app should never be the reason a multi-item
+    // paste gets truncated to one on top of that.
+    const files = items
+      .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+      .map(item => item.getAsFile())
+      .filter(Boolean);
     pasteZone.blur(); // triggers the blur listener below, hiding the zone
 
-    if (!file) {
+    if (!files.length) {
       alert("That paste didn't include a photo. Copy a photo first, then try again.");
       return;
     }
-    await loadImageFiles([file]);
+    await loadImageFiles(files);
   });
 
   pasteZone.addEventListener('blur', () => {

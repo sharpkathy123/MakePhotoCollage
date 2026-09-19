@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { FIXTURES, loadPhotos, pastePhotoInto, pasteTextInto } = require('./helpers');
+const { FIXTURES, loadPhotos, pastePhotoInto, pastePhotosInto, pasteTextInto } = require('./helpers');
 
 // navigator.clipboard.read() (the Async Clipboard API) turned out to be
 // unreliable for images on iOS Safari in real use -- confirmed live, it
@@ -41,6 +41,23 @@ test.describe('Paste from clipboard', () => {
     await page.waitForFunction(() => rawImages.length === 2);
 
     expect(await page.evaluate(() => rawImages.length)).toBe(2);
+  });
+
+  // Regression test: the paste handler used to grab only the FIRST image
+  // item off the clipboard (Array.find), silently dropping the rest even
+  // when the paste event carried several -- e.g. copying multiple photos
+  // at once in Photos. Whether iOS Safari's classic paste event actually
+  // exposes more than one item per gesture is a separate, platform-level
+  // question, but this app should never compound that by throwing away
+  // extra items it was handed.
+  test('pasting multiple images at once loads all of them, not just the first', async ({ page }) => {
+    await page.goto('/index.html');
+    await page.click('#pasteBtn');
+
+    await pastePhotosInto(page, [FIXTURES.redLandscape, FIXTURES.bluePortrait, FIXTURES.greenSquare]);
+    await page.waitForFunction(() => typeof rawImages !== 'undefined' && rawImages.length === 3);
+
+    expect(await page.evaluate(() => rawImages.length)).toBe(3);
   });
 
   test('pasting non-image content alerts and loads nothing', async ({ page }) => {

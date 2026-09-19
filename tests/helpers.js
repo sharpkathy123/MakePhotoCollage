@@ -172,6 +172,27 @@ async function pastePhotoInto(page, fixturePath, mimeType = 'image/png') {
   }, { base64, mimeType });
 }
 
+// Same, but with several image files on the clipboard at once -- covers a
+// multi-photo copy (e.g. several photos selected in Photos and copied
+// together), which a real OS paste event can carry as multiple file items.
+async function pastePhotosInto(page, fixturePaths, mimeType = 'image/png') {
+  const files = fixturePaths.map((p, i) => ({
+    base64: fs.readFileSync(p).toString('base64'),
+    name: `pasted-${i}.png`,
+  }));
+  await page.evaluate(({ files, mimeType }) => {
+    const dt = new DataTransfer();
+    files.forEach(({ base64, name }) => {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      dt.items.add(new File([bytes], name, { type: mimeType }));
+    });
+    const zone = document.getElementById('pasteZone');
+    zone.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, { files, mimeType });
+}
+
 // Same, but with plain text on the clipboard instead of an image -- covers
 // the "that paste didn't include a photo" branch.
 async function pasteTextInto(page, text = 'hello') {
@@ -296,6 +317,7 @@ module.exports = {
   twoFingerGesture,
   pinchGesture,
   pastePhotoInto,
+  pastePhotosInto,
   pasteTextInto,
   dropFilesOnPage,
   dragEnterPage,
