@@ -72,12 +72,13 @@ test.describe('PWA basics', () => {
     await expect(page.locator('#updateTimestamp')).toHaveText('unavailable');
   });
 
-  test('the footer links to the GitHub repo', async ({ page }) => {
+  test('the footer links to the README section of the GitHub repo', async ({ page }) => {
     await page.goto('/index.html');
 
     const link = page.locator('.version-stamp a');
     await expect(link).toBeVisible();
-    await expect(link).toHaveAttribute('href', 'https://github.com/sharpkathy123/MakePhotoCollage');
+    await expect(link).toHaveText('Documentation');
+    await expect(link).toHaveAttribute('href', 'https://github.com/sharpkathy123/MakePhotoCollage#readme');
     await expect(link).toHaveAttribute('target', '_blank');
   });
 });
