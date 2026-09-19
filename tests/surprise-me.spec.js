@@ -228,26 +228,31 @@ test.describe('Surprise Me', () => {
 
   test('across many photos, Surprise Me actually uses more than one shape (not the same shape every time)', async ({ page }) => {
     await page.goto('/index.html');
-    // 8 identical center-focused squarish photos -- same content profile,
+    // 9 identical center-focused squarish photos -- same content profile,
     // so any variety in the outcome can only come from real randomization
     // among that profile's candidate shapes, not from differing content.
-    await loadSyntheticPhotos(page, Array.from({ length: 8 }, () => ({
+    // 9 also lands on a perfect 3x3 grid (0 remainder), so none of them
+    // get widened to close a grid gap -- keeps this test about shape
+    // variety specifically, not also exercising grid spanning at the same
+    // time (see the "grid spanning" tests below for that).
+    await loadSyntheticPhotos(page, Array.from({ length: 9 }, () => ({
       type: 'centerFocus', size: 200, bgColor: '#eeeeee', fgColor: '#cc2222',
     })));
 
     await page.click('#surpriseMeBtn');
+    expect(await page.evaluate(() => activeCols)).toBe(3); // guards the "0 remainder" assumption above
 
     const shapes = await page.evaluate(() => photoMasks.map((m) => m.mode));
     expect(new Set(shapes).size).toBeGreaterThan(1);
 
     // Shape usage is dealt from a shuffled bag per candidate group rather
     // than rolled independently per photo, so all 4 candidate shapes
-    // (circle/square/ellipse/rounded) should come out exactly evenly for
-    // 8 photos sharing one candidate set -- not just "more than one".
+    // (circle/square/ellipse/rounded) should come out close to evenly for
+    // 9 photos sharing one candidate set -- not just "more than one".
     const counts = {};
     shapes.forEach((s) => { counts[s] = (counts[s] || 0) + 1; });
     expect(Object.keys(counts).sort()).toEqual(['circle', 'ellipse', 'rounded', 'square']);
-    Object.values(counts).forEach((n) => expect(n).toBe(2));
+    expect(Object.values(counts).sort((a, b) => a - b)).toEqual([2, 2, 2, 3]);
   });
 
   test('assignShapesProportionally distributes each candidate shape proportionally, with any remainder handled per group', async ({ page }) => {
@@ -278,7 +283,20 @@ test.describe('Surprise Me', () => {
       ]);
       const mixedCounts = countOf(mixed);
 
-      return { nineCounts, mixedCounts };
+      // A spanned photo (gridSpan > 1, e.g. widened to close a grid gap)
+      // can't use Circle/Square -- passing spanByIdx should exclude those
+      // from ONLY the spanned photos' own candidates, splitting them into
+      // a separate ellipse/rounded-only group rather than either breaking
+      // the non-spanned photos' proportional balance or silently letting
+      // a spanned photo end up with Circle/Square anyway.
+      const spanByIdx = new Map([[6, 2], [7, 2]]); // photos 6 and 7 are spanned
+      const eightWithTwoSpanned = assignShapesProportionally(
+        Array.from({ length: 8 }, () => squareFocus), spanByIdx
+      );
+      const spannedShapes = [eightWithTwoSpanned[6], eightWithTwoSpanned[7]];
+      const nonSpannedCounts = countOf(eightWithTwoSpanned.slice(0, 6));
+
+      return { nineCounts, mixedCounts, spannedShapes, nonSpannedCounts };
     });
 
     const nineValues = Object.values(result.nineCounts).sort((a, b) => a - b);
@@ -288,6 +306,13 @@ test.describe('Surprise Me', () => {
     expect(result.mixedCounts.none).toBe(4); // edge-heavy group, forced shape
     expect(result.mixedCounts.ellipse).toBe(3); // elongated-focus group, split evenly
     expect(result.mixedCounts.rounded).toBe(3);
+
+    result.spannedShapes.forEach((s) => expect(['ellipse', 'rounded']).toContain(s));
+    // The 6 non-spanned photos still get the full 4-shape set, split as
+    // evenly as 6/4 allows -- unaffected by the 2 spanned photos being
+    // routed into their own separate group.
+    expect(Object.keys(result.nonSpannedCounts).sort()).toEqual(['circle', 'ellipse', 'rounded', 'square']);
+    expect(Object.values(result.nonSpannedCounts).sort((a, b) => a - b)).toEqual([1, 1, 2, 2]);
   });
 
   test('applying Surprise Me sets a per-photo sampled border color and one shared border width, and picks a layout', async ({ page }) => {
@@ -466,6 +491,101 @@ test.describe('Surprise Me', () => {
 
       const borderColor = await page.evaluate(() => photoMasks[0].borderColor);
       expect(rgbDistance(borderColor, '#dd2222')).toBeLessThan(10);
+    });
+  });
+
+  // Grid layout only: when the photo count doesn't divide evenly into the
+  // chosen column count, the last row used to just be short -- leaving
+  // empty cells. Surprise Me now widens that row's own photos (gridSpan)
+  // to close the gap exactly, distributed as evenly as possible across
+  // however many photos are in that row (not always a fixed 2x span).
+  test.describe('grid spanning fills a short last row instead of leaving empty cells', () => {
+    // Reads geometry generically off activeCols/cellBounds rather than
+    // hardcoding an expected column count, so these stay valid even if
+    // computeOptimalColumns's own heuristic is retuned later.
+    async function gridGeometryCheck(page) {
+      return page.evaluate(() => {
+        const bounds = cellBounds.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h }));
+        let overlap = false;
+        for (let i = 0; i < bounds.length; i++) {
+          for (let j = i + 1; j < bounds.length; j++) {
+            const a = bounds[i], b = bounds[j];
+            if (a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y) overlap = true;
+          }
+        }
+        const rows = {};
+        bounds.forEach((b) => { (rows[b.y] = rows[b.y] || []).push(b); });
+        const rowWidths = Object.values(rows).map((cells) => {
+          cells.sort((a, b) => a.x - b.x);
+          return Math.max(...cells.map((c) => c.x + c.w)) - cells[0].x;
+        });
+        return {
+          overlap,
+          rowWidths,
+          allRowsSameWidth: new Set(rowWidths.map((w) => Math.round(w))).size === 1,
+          spans: photoMasks.map((m) => m.gridSpan),
+          cols: activeCols,
+          count: rawImages.length,
+        };
+      });
+    }
+
+    test('a photo count that leaves a remainder gets its last row widened to fill exactly, with no gaps or overlaps', async ({ page }) => {
+      await page.goto('/index.html');
+      // 7 photos -- enough that computeOptimalColumns won't land on a
+      // perfect rectangle (verified directly: lands on a 3-column grid,
+      // leaving 1 photo in the last row).
+      await loadSyntheticPhotos(page, Array.from({ length: 7 }, (_, i) => ({
+        type: 'solid', width: 300, height: 300, color: `hsl(${i * 40}, 70%, 50%)`,
+      })));
+
+      await page.click('#surpriseMeBtn');
+      const geo = await gridGeometryCheck(page);
+
+      expect(geo.overlap).toBe(false);
+      expect(geo.allRowsSameWidth).toBe(true);
+      // At least one photo actually got widened -- otherwise this test
+      // would trivially pass even with spanning entirely broken/no-op'd.
+      expect(geo.spans.some((s) => s > 1)).toBe(true);
+      // Spans in the last row sum to exactly one full row's worth of
+      // columns (the gap-closing guarantee), not more or less.
+      const remainder = geo.count % geo.cols;
+      const lastRowSpans = geo.spans.slice(geo.count - (remainder || geo.cols));
+      expect(lastRowSpans.reduce((a, b) => a + b, 0)).toBe(geo.cols);
+    });
+
+    test('a spanned photo never keeps Circle or Square (a fixed-square mask on a non-square cell)', async ({ page }) => {
+      await page.goto('/index.html');
+      await loadSyntheticPhotos(page, Array.from({ length: 7 }, (_, i) => ({
+        type: 'solid', width: 300, height: 300, color: `hsl(${i * 40}, 70%, 50%)`,
+      })));
+
+      // Random shape assignment means a single run might not happen to
+      // assign Circle/Square to the spanned photo at all -- run several
+      // presses so the downgrade guarantee gets genuinely exercised, not
+      // just trivially satisfied by chance.
+      for (let i = 0; i < 10; i++) {
+        await page.click('#surpriseMeBtn');
+        const bad = await page.evaluate(() =>
+          photoMasks.some((m) => m.gridSpan > 1 && (m.mode === 'circle' || m.mode === 'square'))
+        );
+        expect(bad).toBe(false);
+      }
+    });
+
+    test('changing the column count after Surprise Me resets grid spans back to 1', async ({ page }) => {
+      await page.goto('/index.html');
+      await loadSyntheticPhotos(page, Array.from({ length: 7 }, (_, i) => ({
+        type: 'solid', width: 300, height: 300, color: `hsl(${i * 40}, 70%, 50%)`,
+      })));
+      await page.click('#surpriseMeBtn');
+
+      const hadSpan = await page.evaluate(() => photoMasks.some((m) => m.gridSpan > 1));
+      expect(hadSpan).toBe(true);
+
+      await page.selectOption('#gridCols', '4');
+      const spansAfter = await page.evaluate(() => photoMasks.map((m) => m.gridSpan));
+      expect(spansAfter.every((s) => s === 1)).toBe(true);
     });
   });
 });

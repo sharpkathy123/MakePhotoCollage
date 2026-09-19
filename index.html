@@ -565,7 +565,7 @@
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js?v=202609190500').catch(err => {
+      navigator.serviceWorker.register('./sw.js?v=202609190700').catch(err => {
         console.log('SW registration failed:', err);
       });
     });
@@ -665,7 +665,11 @@
   let defaultRadius = 30;
 
   function defaultPhotoMask() {
-    return { mode: defaultMaskMode, behavior: defaultMaskBehavior, radius: defaultRadius, borderColor: '#ffffff' };
+    // gridSpan: how many grid columns wide this photo's cell is (Grid
+    // layout only). Always 1 except when Surprise Me widens some of the
+    // last row's photos to close what would otherwise be empty cells --
+    // see surpriseMe()'s spanning step.
+    return { mode: defaultMaskMode, behavior: defaultMaskBehavior, radius: defaultRadius, borderColor: '#ffffff', gridSpan: 1 };
   }
 
   function defaultTransform() {
@@ -1286,6 +1290,14 @@
     }
   }
 
+  // A gridSpan left over from a previous Surprise Me press was sized for
+  // that press's own column count -- carrying it into a different column
+  // count (or out of Grid layout entirely) could overflow a row or just be
+  // meaningless. Reset every photo back to a plain 1-wide cell.
+  function resetGridSpans() {
+    photoMasks.forEach(m => { if (m) m.gridSpan = 1; });
+  }
+
   layoutTypeGroup.querySelectorAll('.option-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       setLayoutType(btn.dataset.value);
@@ -1298,6 +1310,7 @@
       // Fixed-mode photos are untouched either way -- their x/y is already
       // always 0, since dragging them updates panX/panY instead.
       transforms.forEach(t => { t.x = 0; t.y = 0; });
+      resetGridSpans();
       updateUI();
       requestRender();
     });
@@ -1307,6 +1320,7 @@
     const val = parseInt(e.target.value, 10);
     if (!isNaN(val) && val > 0) {
       activeCols = val;
+      resetGridSpans();
       requestRender();
     }
   });
@@ -1590,7 +1604,14 @@
       } else if (layout === 'vertical') {
         return { w: baseDimension, h: Math.round(baseDimension / aspect) };
       } else {
-        return { w: baseDimension, h: baseDimension };
+        // Grid: normally exactly one column wide, but Surprise Me may have
+        // widened this photo to close what would otherwise be empty cells
+        // in its row (see surpriseMe()'s spanning step) -- span columns
+        // are joined into one continuous cell, gap and all, rather than
+        // left as separate same-width cells with a visible seam between.
+        const span = Math.max(1, (photoMasks[idx] || defaultPhotoMask()).gridSpan);
+        const w = span > 1 ? baseDimension * span + interiorGap * (span - 1) : baseDimension;
+        return { w, h: baseDimension };
       }
     });
 
@@ -1620,6 +1641,7 @@
   // the geometry, keyed by photo index, for the draw pass below.
   function computeRenderGeometry(cellLayouts, baseDimension, layout, cols, s, b, interiorGap) {
     let runningOffset = 0;
+    let gridCol = 0, gridRow = 0; // running cursor -- a spanned cell can push later photos past a plain idx % cols position
     const renderGeom = [];
 
     rawImages.forEach((img, idx) => {
@@ -1627,10 +1649,15 @@
       let cellX = 0, cellY = 0;
 
       if (layout === 'grid') {
-        const c = idx % cols;
-        const rw = Math.floor(idx / cols);
-        cellX = b + s + c * (baseDimension + interiorGap);
-        cellY = b + s + rw * (baseDimension + interiorGap);
+        // How many column slots this cell's own width actually occupies
+        // (1 for a plain cell, more for one Surprise Me widened) -- wrap to
+        // a new row first if it wouldn't fit in what's left of this one.
+        const spanCols = Math.round((cellDim.w + interiorGap) / (baseDimension + interiorGap));
+        if (gridCol > 0 && gridCol + spanCols > cols) { gridRow++; gridCol = 0; }
+        cellX = b + s + gridCol * (baseDimension + interiorGap);
+        cellY = b + s + gridRow * (baseDimension + interiorGap);
+        gridCol += spanCols;
+        if (gridCol >= cols) { gridRow++; gridCol = 0; }
       } else if (layout === 'horizontal') {
         cellX = b + s + runningOffset;
         cellY = b + s;
@@ -1655,8 +1682,12 @@
 
       const photoMask = photoMasks[idx] || defaultPhotoMask();
 
-      // Use cover mode (aspect-fill) when square/circle mask is selected
-      const fitMode = (photoMask.mode === 'square' || photoMask.mode === 'circle') ? 'cover' : 'fit';
+      // Use cover mode (aspect-fill) when square/circle mask is selected,
+      // or when this cell has been widened to close a grid gap (see
+      // surpriseMe()) -- fit mode would letterbox it, leaving empty
+      // gutters in exactly the space spanning was meant to fill.
+      const isSpanned = (photoMask.gridSpan || 1) > 1;
+      const fitMode = (photoMask.mode === 'square' || photoMask.mode === 'circle' || isSpanned) ? 'cover' : 'fit';
       const fit = calculateImageDimensions(imgW, imgH, cellW, cellH, fitMode);
 
       // In cover mode the scaled image (fit.w/fit.h) is deliberately larger
@@ -2390,10 +2421,19 @@
   // current one is empty -- so every candidate shape gets used about
   // (group size / candidate count) times, with any remainder spread by
   // chance across the group.
-  function assignShapesProportionally(analyses) {
+  // spanByIdx (optional, index -> gridSpan) excludes Circle/Square from a
+  // photo already known to be widened to close a grid gap -- those masks
+  // force a fixed 1x1 cell, meaningless on a wider one. Filtering this in
+  // up front (rather than assigning a shape and overriding it afterward)
+  // keeps the proportional-balance guarantee above honest for every OTHER
+  // photo in what would otherwise have been that photo's candidate group.
+  function assignShapesProportionally(analyses, spanByIdx = null) {
     const groups = new Map();
     analyses.forEach((a, i) => {
-      const candidates = shapeCandidatesFor(a);
+      let candidates = shapeCandidatesFor(a);
+      if (spanByIdx && spanByIdx.get(i) > 1) {
+        candidates = candidates.filter(s => s !== 'circle' && s !== 'square');
+      }
       const key = candidates.join(',');
       if (!groups.has(key)) groups.set(key, { candidates, indices: [] });
       groups.get(key).indices.push(i);
@@ -2491,15 +2531,6 @@
     if (!rawImages.length) return;
 
     const analyses = rawImages.map(analyzePhoto);
-    const shapes = assignShapesProportionally(analyses);
-
-    analyses.forEach((a, i) => {
-      if (!photoMasks[i]) return;
-      photoMasks[i].mode = shapes[i];
-      // Avoid a border that blends into Canvas Background -- an invisible
-      // border defeats the point of picking one at all.
-      photoMasks[i].borderColor = pickBorderColorAvoiding(a, canvasColorVal);
-    });
 
     // One shared width for the whole collage -- thicker for a handful of
     // photos (each reads as its own framed piece), thinner once there are
@@ -2534,6 +2565,40 @@
         [order[centerSlot], order[minorityPos]] = [order[minorityPos], order[centerSlot]];
       }
     }
+
+    // Grid layout only: when the photo count doesn't divide evenly into
+    // cols, the last row is short -- rather than leave it with empty
+    // cells, widen that row's own photos to exactly fill it. `order`
+    // already maps final position -> original index, so its last
+    // `remainder` entries ARE (before reordering happens below) exactly
+    // which original photos will end up in that short row. Distributed as
+    // evenly as possible rather than always doubling, so this closes the
+    // gap completely regardless of how short the row is, not just when a
+    // 2x span happens to be enough. Decided here, before shape assignment,
+    // so Circle/Square (a fixed 1x1 mask, meaningless on a wider cell) can
+    // be excluded from a spanned photo's own candidates up front.
+    const spanByIdx = new Map();
+    if (layoutType === 'grid' && cols >= 2) {
+      const remainder = rawImages.length % cols;
+      if (remainder !== 0) {
+        const lastRowStart = rawImages.length - remainder;
+        const base = Math.floor(cols / remainder);
+        const extra = cols % remainder;
+        for (let i = 0; i < remainder; i++) {
+          spanByIdx.set(order[lastRowStart + i], base + (i < extra ? 1 : 0));
+        }
+      }
+    }
+
+    const shapes = assignShapesProportionally(analyses, spanByIdx);
+    analyses.forEach((a, i) => {
+      if (!photoMasks[i]) return;
+      photoMasks[i].mode = shapes[i];
+      // Avoid a border that blends into Canvas Background -- an invisible
+      // border defeats the point of picking one at all.
+      photoMasks[i].borderColor = pickBorderColorAvoiding(a, canvasColorVal);
+      photoMasks[i].gridSpan = spanByIdx.get(i) || 1;
+    });
 
     reorderPhotosBy(order);
     // A fresh arrangement makes any existing per-photo nudge meaningless,
