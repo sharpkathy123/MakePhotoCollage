@@ -336,7 +336,15 @@ test.describe('Surprise Me', () => {
     expect(await page.evaluate(() => layoutType)).toBeTruthy();
   });
 
-  test('Surprise Me groups similar colors together and centers a lone minority-orientation photo', async ({ page }) => {
+  // Regression test: the centering swap used to run unconditionally
+  // whenever a minority orientation existed. computeCenterSlot only
+  // depends on itemCount/cols -- both fixed across repeated presses on
+  // the same photos -- so the orientation outlier always landed in the
+  // exact same slot no matter how many times the button was pressed, even
+  // though everything else (colors, shapes, spanning) kept reshuffling.
+  // Now applied on most presses (see the ~60% roll in surpriseMe()), not
+  // every one.
+  test('Surprise Me groups similar colors together and centers a lone minority-orientation photo most (but not every) press', async ({ page }) => {
     await page.goto('/index.html');
     // Pure color-category order would sort these red, orange, magenta --
     // landing the (portrait) magenta photo LAST, not centered -- so this
@@ -348,13 +356,19 @@ test.describe('Surprise Me', () => {
       { type: 'solid', width: 180, height: 300, color: '#cc22cc' }, // magenta, portrait -- the odd one out
     ]);
 
-    await page.click('#surpriseMeBtn');
-
-    const aspects = await page.evaluate(() => rawImages.map((img) => img.naturalWidth / img.naturalHeight));
-    // 3 photos -> Horizontal Strip (see computeOptimalColumns), center slot = index 1.
-    expect(aspects[1]).toBeLessThan(1); // the portrait photo, now centered
-    expect(aspects[0]).toBeGreaterThan(1);
-    expect(aspects[2]).toBeGreaterThan(1);
+    // 3 photos -> Horizontal Strip (see computeOptimalColumns), center slot
+    // = index 1. Several presses -- at ~60% odds of centering per press,
+    // the chance of never once landing either way across 15 tries is
+    // astronomically small, rather than "unlikely once".
+    let sawCentered = false;
+    let sawNotCentered = false;
+    for (let i = 0; i < 15; i++) {
+      await page.click('#surpriseMeBtn');
+      const aspects = await page.evaluate(() => rawImages.map((img) => img.naturalWidth / img.naturalHeight));
+      if (aspects[1] < 1) sawCentered = true; else sawNotCentered = true;
+    }
+    expect(sawCentered).toBe(true); // the feature still works when it triggers
+    expect(sawNotCentered).toBe(true); // and it no longer triggers every single time
   });
 
   test('Surprise Me groups same-colored photos together when there is no orientation tiebreak to fight it', async ({ page }) => {
@@ -687,6 +701,33 @@ test.describe('Surprise Me', () => {
       expect(geo.allRowsSameWidth).toBe(true);
       expect(geo.spans.filter((s) => s === 2).length).toBeGreaterThan(1);
       expect(Math.max(...geo.spans)).toBeLessThanOrEqual(2); // never one giant span
+    });
+
+    // Regression test: which position within an affected row got the
+    // widened cell used to always be the first (leftmost) one -- e.g. for
+    // 5 photos in a 3-column grid, always the bottom-left cell, no matter
+    // how many times Surprise Me was pressed.
+    test('which position gets widened within a row is reshuffled across presses, not always the same spot', async ({ page }) => {
+      await page.goto('/index.html');
+      // 5 photos in a Grid the user already picked (Grid is preserved --
+      // see the "keeps Grid layout for 3 or 5" test -- but 5 also needs
+      // this explicit opt-in since it's one of the special-cased counts).
+      await loadSyntheticPhotos(page, Array.from({ length: 5 }, (_, i) => ({
+        type: 'solid', width: 300, height: 300, color: `hsl(${i * 60}, 70%, 50%)`,
+      })));
+      await page.evaluate(() => { setLayoutType('grid'); requestRender(); });
+
+      const widenedPositions = new Set();
+      for (let i = 0; i < 15; i++) {
+        await page.click('#surpriseMeBtn');
+        const spans = await page.evaluate(() => photoMasks.map((m) => m.gridSpan));
+        widenedPositions.add(spans.findIndex((s) => s === 2));
+      }
+
+      // 5 photos / 3 cols leaves exactly 2 candidate positions for the
+      // single widened cell (the last row has 2 photos) -- across 15
+      // presses both should show up, not just one of them every time.
+      expect(widenedPositions.size).toBeGreaterThan(1);
     });
 
     test('a spanned photo never keeps Circle or Square (a fixed-square mask on a non-square cell)', async ({ page }) => {
